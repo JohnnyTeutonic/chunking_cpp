@@ -1,0 +1,12 @@
+<map id="advanced_structures::ChunkBPlusTree&lt; T &gt;::Node" name="advanced_structures::ChunkBPlusTree&lt; T &gt;::Node">
+<area shape="rect" id="Node000001" title=" " alt="" coords="868,7,1025,62"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,42,212,97"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="225,40,317,27,470,18,622,16,868,26,868,32,622,22,470,23,318,32,226,46"/>
+<area shape="rect" id="Node000004" href="$structadvanced__structures_1_1ChunkBPlusTree_1_1Node.html" title=" " alt="" coords="317,42,475,97"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="226,67,317,67,317,72,226,72"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="580,53,787,107"/>
+<area shape="poly" id="edge6_Node000001_Node000003" title=" " alt="" coords="800,57,867,45,868,51,801,63"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="567,112,475,127,396,133,317,127,253,115,193,99,194,94,255,110,318,121,396,127,474,121,566,106"/>
+<area shape="poly" id="edge5_Node000004_Node000003" title=" " alt="" coords="566,99,498,97,475,93,475,88,499,92,566,94"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="488,70,580,73,579,79,488,75"/>
+</map>

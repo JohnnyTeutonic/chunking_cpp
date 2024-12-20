@@ -1,0 +1,24 @@
+<map id="include/parallel_chunk.hpp" name="include/parallel_chunk.hpp">
+<area shape="rect" id="Node000001" title=" " alt="" coords="394,5,590,31"/>
+<area shape="rect" id="Node000002" href="$chunk_8hpp.html" title="Template class for chunk&#45;based data processing." alt="" coords="250,79,339,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="461,33,341,76,339,71,459,28"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="413,152,475,177"/>
+<area shape="poly" id="edge11_Node000001_Node000006" title=" " alt="" coords="478,33,457,53,440,80,435,110,439,139,434,139,430,110,435,78,453,50,474,29"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="449,79,535,104"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="495,31,495,65,489,65,489,31"/>
+<area shape="rect" id="Node000010" title=" " alt="" coords="560,79,621,104"/>
+<area shape="poly" id="edge9_Node000001_Node000010" title=" " alt="" coords="509,29,565,68,562,73,506,33"/>
+<area shape="rect" id="Node000011" title=" " alt="" coords="645,79,709,104"/>
+<area shape="poly" id="edge10_Node000001_Node000011" title=" " alt="" coords="523,28,635,71,634,76,521,33"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="5,152,80,177"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="255,107,94,152,93,147,253,101"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="105,152,191,177"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="272,106,185,148,183,144,270,102"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="216,152,275,177"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="289,106,263,142,259,139,284,103"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="320,102,408,144,406,148,318,106"/>
+<area shape="rect" id="Node000007" href="$config_8hpp.html" title=" " alt="" coords="299,152,389,177"/>
+<area shape="poly" id="edge6_Node000002_Node000007" title=" " alt="" coords="305,103,330,139,326,142,301,106"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="309,225,379,251"/>
+<area shape="poly" id="edge7_Node000007_Node000008" title=" " alt="" coords="347,178,347,212,341,212,341,178"/>
+</map>

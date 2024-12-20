@@ -1,0 +1,10 @@
+<map id="advanced_structures::ChunkSkipList&lt; T &gt;" name="advanced_structures::ChunkSkipList&lt; T &gt;">
+<area shape="rect" id="Node000001" title="A skip list implementation for efficient chunk searching." alt="" coords="5,130,165,170"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="189,5,387,60"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="231,69,120,132,117,128,229,64"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="189,123,387,177"/>
+<area shape="poly" id="edge4_Node000004_Node000002" title=" " alt="" coords="291,74,291,122,285,122,285,74"/>
+<area shape="rect" id="Node000003" href="$structadvanced__structures_1_1ChunkSkipList_1_1Node.html" title=" " alt="" coords="299,240,459,295"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="395,226,397,215,406,168,404,148,396,124,386,105,372,89,338,62,341,58,375,85,390,102,401,122,410,147,411,168,403,217,400,228"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="319,186,360,238,356,241,315,190"/>
+</map>

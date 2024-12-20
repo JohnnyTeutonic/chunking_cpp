@@ -1,0 +1,8 @@
+<map id="include/chunk.hpp" name="include/chunk.hpp">
+<area shape="rect" id="Node000001" title="Template class for chunk&#45;based data processing." alt="" coords="101,5,241,31"/>
+<area shape="rect" id="Node000002" href="$parallel__chunk_8hpp.html" title=" " alt="" coords="5,79,201,104"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="153,42,116,80,112,77,149,39"/>
+<area shape="rect" id="Node000003" href="$main_8cpp.html" title=" " alt="" coords="119,152,224,177"/>
+<area shape="poly" id="edge3_Node000001_Node000003" title=" " alt="" coords="195,40,214,69,218,87,217,105,202,132,185,154,181,150,198,129,211,103,213,87,209,71,191,43"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="126,112,162,150,158,154,122,116"/>
+</map>
