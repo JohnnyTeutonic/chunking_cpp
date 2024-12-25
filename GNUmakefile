@@ -166,8 +166,10 @@ visualization:
 	@g++ -std=c++17 src/chunk_visualization_demo.cpp -I./include -o chunk_visualization_demo
 	@./chunk_visualization_demo
 
+# i.e. make pytest ARGS="--verbose"
 pytest:
-	@pytest tests/python/test_py_bindings.py
+	@pytest tests/python/test_py_bindings.py $(ARGS)
+
 
 pytest-coverage:
 	@pytest --cov=chunking_cpp --cov-report=html --cov-report=term tests/python/test_py_bindings.py

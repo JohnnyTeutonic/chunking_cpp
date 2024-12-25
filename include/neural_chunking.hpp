@@ -10,6 +10,7 @@
 #include <cmath>   // for std::abs
 #include <cstdlib> // for malloc, free
 #include <memory>
+#include <numeric>
 #include <stdexcept> // for std::runtime_error
 #include <vector>
 
@@ -102,50 +103,52 @@ public:
 private:
     size_t window_size_;
     double threshold_;
+
+    template <typename U>
+    double compute_feature(const U& arr) const {
+        if constexpr (chunk_processing::is_multidimensional_v<U>) {
+            double sum = 0.0;
+            for (const auto& inner : arr) {
+                sum += compute_feature(inner);
+            }
+            return sum / std::size(arr);
+        } else if constexpr (chunk_processing::is_vector<U>::value) {
+            return std::accumulate(std::begin(arr), std::end(arr), 0.0) / std::size(arr);
+        } else {
+            return static_cast<double>(arr);
+        }
+    }
 };
 
 template <typename T>
 std::vector<std::vector<T>> NeuralChunking<T>::chunk(const std::vector<T>& data) const {
-    // Handle empty input
-    if (data.empty()) {
+    if (data.empty())
         return {};
-    }
-
-    // Handle input smaller than window size
-    if (data.size() < window_size_) {
-        return {data};
-    }
 
     std::vector<std::vector<T>> result;
     std::vector<T> current_chunk;
-    current_chunk.reserve(data.size()); // Optimize memory allocation
 
-    // Add first element to start the first chunk
-    current_chunk.push_back(data[0]);
-
-    // Process the data
-    for (size_t i = 1; i < data.size(); ++i) {
-        // If we have enough elements to check window
-        if (i >= window_size_) {
-            T diff = std::abs(data[i] - data[i - window_size_]);
-            if (diff > threshold_) {
-                if (!current_chunk.empty()) {
-                    result.push_back(current_chunk);
-                    current_chunk.clear();
-                }
+    for (const auto& value : data) {
+        if constexpr (chunk_processing::is_multidimensional_v<T>) {
+            double feature = compute_feature(value);
+            if (!current_chunk.empty() &&
+                std::abs(feature - compute_feature(current_chunk.back())) > threshold_) {
+                result.push_back(current_chunk);
+                current_chunk.clear();
+            }
+        } else {
+            // Single-dimension logic
+            if (!current_chunk.empty() &&
+                std::abs(static_cast<double>(value - current_chunk.back())) > threshold_) {
+                result.push_back(current_chunk);
+                current_chunk.clear();
             }
         }
-        current_chunk.push_back(data[i]);
+        current_chunk.push_back(value);
     }
 
-    // Add the last chunk if not empty
     if (!current_chunk.empty()) {
         result.push_back(current_chunk);
-    }
-
-    // If no chunks were created, return the entire data as one chunk
-    if (result.empty() && !data.empty()) {
-        return {data};
     }
 
     return result;

@@ -300,3 +300,20 @@ def test_empty_and_edge_cases():
     chunk.add([1.0, 1.0, 1.0])  # Identical values
     result = chunk.chunk_by_threshold(0.1)
     assert len(result) > 0
+
+def test_2d_array_chunking():
+    data = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+    chunker = Chunk2D(2)
+    chunker.add(data)
+    chunks = chunker.get_chunks()
+    assert len(chunks) == 2
+    assert all(chunk.shape[1] == 2 for chunk in chunks)
+
+def test_3d_array_chunking():
+    data = np.array([[[1.0, 2.0], [3.0, 4.0]], 
+                    [[5.0, 6.0], [7.0, 8.0]]])
+    chunker = Chunk3D(1)
+    chunker.add(data)
+    chunks = chunker.get_chunks()
+    assert len(chunks) == 2
+    assert all(chunk.shape[1:] == (2, 2) for chunk in chunks)

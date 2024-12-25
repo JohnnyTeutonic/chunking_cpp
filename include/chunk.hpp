@@ -49,6 +49,26 @@ private:
         }
     }
 
+    // Add support for checking dimensionality
+    template <typename U>
+    static constexpr size_t get_depth() {
+        if constexpr (is_vector<U>::value)
+            return 1 + get_depth<typename U::value_type>();
+        return 0;
+    }
+
+    // Helper to validate nested vectors have consistent dimensions
+    template <typename U>
+    void validate_dimensions(const std::vector<U>& data, size_t expected_size = 0) {
+        for (const auto& inner : data) {
+            if constexpr (is_vector<U>::value) {
+                if (expected_size > 0 && inner.size() != expected_size)
+                    throw std::invalid_argument("Inconsistent dimensions in nested array");
+                validate_dimensions(inner, expected_size);
+            }
+        }
+    }
+
 public:
     explicit Chunk(size_t chunk_size = 1) : chunk_size_(chunk_size) {
         validate_size(chunk_size, "Chunk size");
@@ -129,6 +149,19 @@ public:
         validate_size(new_size, "Chunk size");
         chunk_size_ = new_size;
         update_chunks();
+    }
+
+    // Add methods to handle multi-dimensional data
+    template <typename U = T>
+    std::enable_if_t<is_vector<U>::value> add(const U& nested_data) {
+        validate_dimensions(nested_data);
+        data_.push_back(nested_data);
+        update_chunks();
+    }
+
+    // Get the dimensionality of the data
+    static constexpr size_t dimensions() {
+        return get_depth<T>();
     }
 };
 

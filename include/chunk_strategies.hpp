@@ -6,6 +6,7 @@
 #pragma once
 
 #include "chunk.hpp"
+#include "chunk_common.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -187,6 +188,25 @@ public:
 
 template <typename T>
 class PatternBasedStrategy : public ChunkStrategy<T> {
+private:
+    template <typename U>
+    static constexpr bool is_multidimensional_v = chunk_processing::is_multidimensional_v<U>;
+
+    template <typename U>
+    double compute_array_sum(const U& arr) const {
+        if constexpr (chunk_processing::is_multidimensional_v<U>) {
+            double sum = 0.0;
+            for (const auto& inner : arr) {
+                sum += compute_array_sum(inner);
+            }
+            return sum;
+        } else if constexpr (chunk_processing::is_vector<U>::value) {
+            return std::accumulate(arr.begin(), arr.end(), 0.0);
+        } else {
+            return static_cast<double>(arr);
+        }
+    }
+
 public:
     // Constructor for size-based patterns
     explicit PatternBasedStrategy(size_t pattern_size)
@@ -197,48 +217,69 @@ public:
         : pattern_size_(0), predicate_(predicate) {}
 
     std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
-        // Handle empty input first
         if (data.empty()) {
             return {};
         }
 
-        if (predicate_) {
-            // Use predicate-based chunking
-            std::vector<std::vector<T>> result;
-            std::vector<T> current_chunk;
+        if constexpr (is_multidimensional_v<T>) {
+            // Handle multi-dimensional arrays
+            if (predicate_) {
+                return chunk_by_predicate(data);
+            } else {
+                return chunk_by_size(data);
+            }
+        } else {
+            // Existing single-dimension logic
+            // ...
+        }
+    }
 
-            for (const auto& value : data) {
-                current_chunk.push_back(value);
-                if (predicate_(value) && current_chunk.size() > 1) {
-                    result.push_back(current_chunk);
-                    current_chunk.clear();
+private:
+    std::vector<std::vector<T>> chunk_by_predicate(const std::vector<T>& data) const {
+        std::vector<std::vector<T>> result;
+        std::vector<T> current_chunk;
+
+        for (const auto& value : data) {
+            if constexpr (is_multidimensional_v<T>) {
+                if (predicate_(compute_array_sum(value))) {
+                    if (!current_chunk.empty()) {
+                        result.push_back(current_chunk);
+                        current_chunk.clear();
+                    }
+                }
+            } else {
+                if (predicate_(value)) {
+                    if (!current_chunk.empty()) {
+                        result.push_back(current_chunk);
+                        current_chunk.clear();
+                    }
                 }
             }
-
-            if (!current_chunk.empty()) {
-                result.push_back(current_chunk);
-            }
-
-            return result;
-        } else {
-            // Size-based chunking
-            if (pattern_size_ == 0) {
-                return {data}; // Return single chunk if pattern size is 0
-            }
-
-            // Handle empty input and small inputs
-            if (data.size() < pattern_size_) {
-                return data.empty() ? std::vector<std::vector<T>>{}
-                                    : std::vector<std::vector<T>>{data};
-            }
-
-            std::vector<std::vector<T>> result;
-            for (size_t i = 0; i < data.size(); i += pattern_size_) {
-                size_t end = std::min(i + pattern_size_, data.size());
-                result.emplace_back(data.begin() + i, data.begin() + end);
-            }
-            return result;
+            current_chunk.push_back(value);
         }
+
+        if (!current_chunk.empty()) {
+            result.push_back(current_chunk);
+        }
+
+        return result;
+    }
+
+    std::vector<std::vector<T>> chunk_by_size(const std::vector<T>& data) const {
+        if (pattern_size_ == 0) {
+            return {data};
+        }
+
+        if (data.size() < pattern_size_) {
+            return data.empty() ? std::vector<std::vector<T>>{} : std::vector<std::vector<T>>{data};
+        }
+
+        std::vector<std::vector<T>> result;
+        for (size_t i = 0; i < data.size(); i += pattern_size_) {
+            size_t end = std::min(i + pattern_size_, data.size());
+            result.emplace_back(data.begin() + i, data.begin() + end);
+        }
+        return result;
     }
 
     // Add getters
