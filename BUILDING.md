@@ -27,8 +27,11 @@ sudo make
 sudo cp lib/*.a /usr/lib
 sudo ln -s /usr/src/gtest/include/gtest /usr/include/gtest
 
-# Install documentation and tools
-sudo apt-get install doxygen gnuplot graphviz libboost-all-dev python3-pybind11
+# Install documentation and other dependencies
+sudo apt-get install doxygen gnuplot graphviz libboost-all-dev python3-pybind11 \
+libpq-dev libstdc++6 libmongoc-dev \
+librdkafka-dev librabbitmq-dev libjsoncpp-dev \
+librdkafka++1 
 ```
 
 ### macOS
@@ -106,10 +109,7 @@ chunk.chunk_by_threshold(1.0)
 These can be installed on ubuntu/debian with:
 
 ```bash
-sudo apt-get install libpq-dev libstdc++6 libmongoc-dev \
--     librdkafka-dev librabbitmq-dev libjsoncpp-dev
-+     librdkafka-dev librdkafka++1 librabbitmq-dev libjsoncpp-dev \
-+     python3-pytest python3-pytest-cov
+sudo apt -y install python3-pytest python3-pytest-cov
 ```
 
 ## Configuration Options
