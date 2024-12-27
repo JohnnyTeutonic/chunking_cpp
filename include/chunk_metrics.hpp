@@ -23,51 +23,51 @@
 namespace chunk_metrics {
 
 namespace detail {
-    template<typename T>
-    bool is_valid_chunk(const std::vector<T>& chunk) {
-        return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(),
-            [](const T& val) {
-                return std::isfinite(static_cast<double>(val));
-            });
-    }
+template <typename T>
+bool is_valid_chunk(const std::vector<T>& chunk) {
+    return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(), [](const T& val) {
+        return std::isfinite(static_cast<double>(val));
+    });
+}
 
-    template<typename T>
-    bool is_valid_chunks(const std::vector<std::vector<T>>& chunks) {
-        return !chunks.empty() && std::all_of(chunks.begin(), chunks.end(),
-            [](const auto& chunk) { return is_valid_chunk(chunk); });
-    }
+template <typename T>
+bool is_valid_chunks(const std::vector<std::vector<T>>& chunks) {
+    return !chunks.empty() && std::all_of(chunks.begin(), chunks.end(),
+                                          [](const auto& chunk) { return is_valid_chunk(chunk); });
+}
 
-    template<typename T>
-    double safe_mean(const std::vector<T>& data) {
-        if (data.empty()) return 0.0;
-        double sum = 0.0;
-        size_t valid_count = 0;
-        
-        for (const auto& val : data) {
-            double d_val = static_cast<double>(val);
-            if (std::isfinite(d_val)) {
-                sum += d_val;
-                ++valid_count;
-            }
+template <typename T>
+double safe_mean(const std::vector<T>& data) {
+    if (data.empty())
+        return 0.0;
+    double sum = 0.0;
+    size_t valid_count = 0;
+
+    for (const auto& val : data) {
+        double d_val = static_cast<double>(val);
+        if (std::isfinite(d_val)) {
+            sum += d_val;
+            ++valid_count;
         }
-        
-        return valid_count > 0 ? sum / valid_count : 0.0;
     }
 
-    template<typename T>
-    double safe_distance(const T& a, const T& b) {
-        try {
-            double d_a = static_cast<double>(a);
-            double d_b = static_cast<double>(b);
-            if (!std::isfinite(d_a) || !std::isfinite(d_b)) {
-                return std::numeric_limits<double>::max();
-            }
-            return std::abs(d_a - d_b);
-        } catch (...) {
+    return valid_count > 0 ? sum / valid_count : 0.0;
+}
+
+template <typename T>
+double safe_distance(const T& a, const T& b) {
+    try {
+        double d_a = static_cast<double>(a);
+        double d_b = static_cast<double>(b);
+        if (!std::isfinite(d_a) || !std::isfinite(d_b)) {
             return std::numeric_limits<double>::max();
         }
+        return std::abs(d_a - d_b);
+    } catch (...) {
+        return std::numeric_limits<double>::max();
     }
 }
+} // namespace detail
 
 /**
  * @brief Class for analyzing and evaluating chunk quality
@@ -78,7 +78,7 @@ class CHUNK_EXPORT ChunkQualityAnalyzer {
 private:
     mutable std::mutex mutex_;
     mutable std::atomic<bool> is_processing_{false};
-    
+
     // Cache for intermediate results
     mutable struct Cache {
         std::vector<double> chunk_means;
@@ -97,28 +97,29 @@ private:
         if (!cache_.is_valid) {
             cache_.chunk_means.clear();
             cache_.chunk_means.reserve(chunks.size());
-            
+
             double total_sum = 0.0;
             size_t total_count = 0;
-            
+
             for (const auto& chunk : chunks) {
                 double mean = detail::safe_mean(chunk);
                 cache_.chunk_means.push_back(mean);
                 total_sum += mean * chunk.size();
                 total_count += chunk.size();
             }
-            
+
             cache_.global_mean = total_count > 0 ? total_sum / total_count : 0.0;
             cache_.is_valid = true;
         }
     }
 
     double compute_chunk_cohesion(const std::vector<T>& chunk, double chunk_mean) const {
-        if (chunk.empty()) return 0.0;
-        
+        if (chunk.empty())
+            return 0.0;
+
         double sum_distances = 0.0;
         size_t valid_pairs = 0;
-        
+
         for (size_t i = 0; i < chunk.size(); ++i) {
             for (size_t j = i + 1; j < chunk.size(); ++j) {
                 double dist = detail::safe_distance(chunk[i], chunk[j]);
@@ -128,13 +129,13 @@ private:
                 }
             }
         }
-        
+
         return valid_pairs > 0 ? sum_distances / valid_pairs : 0.0;
     }
 
 public:
     ChunkQualityAnalyzer() = default;
-    
+
     void clear_cache() {
         std::lock_guard<std::mutex> lock(mutex_);
         cache_.is_valid = false;
@@ -147,32 +148,35 @@ public:
         if (!is_processing_.compare_exchange_strong(expected, true)) {
             throw std::runtime_error("Analyzer is already processing");
         }
-        
+
         struct Guard {
             std::atomic<bool>& flag;
             Guard(std::atomic<bool>& f) : flag(f) {}
-            ~Guard() { flag = false; }
+            ~Guard() {
+                flag = false;
+            }
         } guard(const_cast<std::atomic<bool>&>(is_processing_));
 
         try {
             validate_chunks(chunks);
             update_cache(chunks);
-            
+
             double total_cohesion = 0.0;
             size_t valid_chunks = 0;
-            
+
             for (size_t i = 0; i < chunks.size(); ++i) {
                 if (!chunks[i].empty()) {
-                    double chunk_cohesion = compute_chunk_cohesion(chunks[i], cache_.chunk_means[i]);
+                    double chunk_cohesion =
+                        compute_chunk_cohesion(chunks[i], cache_.chunk_means[i]);
                     if (std::isfinite(chunk_cohesion)) {
                         total_cohesion += chunk_cohesion;
                         ++valid_chunks;
                     }
                 }
             }
-            
+
             return valid_chunks > 0 ? total_cohesion / valid_chunks : 0.0;
-            
+
         } catch (const std::exception& e) {
             throw std::runtime_error(std::string("Error computing cohesion: ") + e.what());
         } catch (...) {
