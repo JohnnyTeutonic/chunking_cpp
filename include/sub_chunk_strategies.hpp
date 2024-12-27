@@ -12,6 +12,7 @@
 #include "chunk_strategies.hpp"
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace chunk_processing {
@@ -22,32 +23,61 @@ private:
     std::shared_ptr<ChunkStrategy<T>> base_strategy_;
     size_t max_depth_;
     size_t min_size_;
-
-    std::vector<std::vector<T>> recursive_apply(const std::vector<T>& data, size_t depth) const {
-        if (depth >= max_depth_ || data.size() <= min_size_) {
+    
+    std::vector<std::vector<T>> recursive_apply(const std::vector<T>& data, size_t current_depth) {
+        // Base cases to prevent segfaults
+        if (data.empty() || data.size() <= min_size_ || current_depth >= max_depth_) {
             return {data};
         }
-
-        auto chunks = base_strategy_->apply(data);
-        std::vector<std::vector<T>> result;
-
-        for (const auto& chunk : chunks) {
-            auto sub_chunks = recursive_apply(chunk, depth + 1);
-            result.insert(result.end(), sub_chunks.begin(), sub_chunks.end());
+        
+        // Ensure base strategy exists
+        if (!base_strategy_) {
+            throw std::runtime_error("Base strategy not initialized");
         }
 
+        // Apply base strategy to get initial chunks
+        auto initial_chunks = base_strategy_->apply(data);
+        
+        // If no further splitting needed
+        if (initial_chunks.size() <= 1) {
+            return initial_chunks;
+        }
+
+        // Recursively process each chunk
+        std::vector<std::vector<T>> result;
+        for (const auto& chunk : initial_chunks) {
+            // Only recurse if chunk is large enough
+            if (chunk.size() > min_size_) {
+                auto sub_chunks = recursive_apply(chunk, current_depth + 1);
+                result.insert(result.end(), sub_chunks.begin(), sub_chunks.end());
+            } else {
+                result.push_back(chunk);
+            }
+        }
+        
         return result;
     }
 
 public:
-    RecursiveSubChunkStrategy(std::shared_ptr<ChunkStrategy<T>> strategy, size_t max_depth,
-                              size_t min_size)
-        : base_strategy_(strategy), max_depth_(max_depth), min_size_(min_size) {}
+    RecursiveSubChunkStrategy(std::shared_ptr<ChunkStrategy<T>> strategy, 
+                             size_t max_depth = 5,
+                             size_t min_size = 2)
+        : base_strategy_(strategy)
+        , max_depth_(max_depth)
+        , min_size_(min_size) {
+        if (!strategy) {
+            throw std::invalid_argument("Base strategy cannot be null");
+        }
+        if (max_depth == 0) {
+            throw std::invalid_argument("Max depth must be positive");
+        }
+        if (min_size == 0) {
+            throw std::invalid_argument("Min size must be positive");
+        }
+    }
 
     std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
-        if (data.empty())
-            return {};
-        return recursive_apply(data, 0);
+        return const_cast<RecursiveSubChunkStrategy*>(this)->recursive_apply(data, 0);
     }
 };
 

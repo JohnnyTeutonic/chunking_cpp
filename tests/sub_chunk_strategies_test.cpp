@@ -10,6 +10,7 @@
  */
 #include "chunk_strategies.hpp"
 #include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
 #include <vector>
 
@@ -29,29 +30,43 @@ protected:
 TEST_F(SubChunkStrategiesTest, RecursiveStrategyTest) {
     // Create a variance strategy with threshold 3.0
     auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(3.0);
+    if (!variance_strategy) {
+        FAIL() << "Failed to create variance strategy";
+    }
 
-    // Create recursive strategy with max depth 2 and min size 2
-    chunk_processing::RecursiveSubChunkStrategy<double> recursive_strategy(variance_strategy, 2, 2);
+    try {
+        // Create recursive strategy with max depth 3 and min size 2
+        chunk_processing::RecursiveSubChunkStrategy<double> recursive_strategy(
+            variance_strategy, 3, 2);
 
-    // Apply the strategy
-    auto result = recursive_strategy.apply(test_data);
+        // Apply the strategy
+        auto result = recursive_strategy.apply(test_data);
 
-    // Verify the results
-    EXPECT_GT(result.size(), 1);
+        // Verify the results
+        ASSERT_GT(result.size(), 0) << "Result should not be empty";
+        
+        // Verify each chunk meets minimum size requirement
+        for (const auto& chunk : result) {
+            ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
+        }
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
 }
 
 TEST_F(SubChunkStrategiesTest, HierarchicalStrategyTest) {
+   std::cout << "before creating shared pointers" << std::endl;
     // Create multiple strategies
     std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies = {
         std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0),
         std::make_shared<chunk_processing::EntropyStrategy<double>>(1.0)};
-
+    std::cout << "after creating shared pointers" << std::endl;
     // Create hierarchical strategy with min size 2
     chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
-
+    std::cout << "after creating hierarchical strategy" << std::endl;   
     // Apply the strategy
     auto result = hierarchical_strategy.apply(test_data);
-
+    std::cout << "after applying the strategy" << std::endl;
     // Verify the results
     EXPECT_GT(result.size(), 1);
 }

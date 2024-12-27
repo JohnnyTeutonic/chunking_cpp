@@ -1,6 +1,7 @@
 #include "parallel_chunk.hpp"
 #include "gtest/gtest.h"
 #include <numeric>
+#include <iostream>
 
 using namespace parallel_chunk;
 
@@ -157,7 +158,7 @@ TEST_F(ParallelChunkProcessorTest, ConcurrentModification) {
 
 TEST_F(ParallelChunkProcessorTest, ExceptionPropagation) {
     std::vector<std::vector<int>> data = {{1}, {2}, {3}, {4}, {5}};
-    int exception_threshold = 3;
+    int exception_threshold = 2;
 
     EXPECT_THROW(
         {
@@ -166,7 +167,8 @@ TEST_F(ParallelChunkProcessorTest, ExceptionPropagation) {
                     if (chunk[0] > exception_threshold) {
                         throw std::runtime_error("Value too large");
                     }
-                    chunk[0] *= 2;
+                    std::cout << "chunk[0] before increment: " << chunk[0] << std::endl;
+                    chunk[0] *=2;
                 });
         },
         std::runtime_error);
