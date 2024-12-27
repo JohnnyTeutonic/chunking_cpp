@@ -6,13 +6,68 @@
  */
 
 #pragma once
+
 #include "chunk_common.hpp"
+#include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <limits>
+#include <map>
+#include <mutex>
+#include <numeric>
 #include <stdexcept>
-#include <unordered_map>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace chunk_metrics {
+
+namespace detail {
+    template<typename T>
+    bool is_valid_chunk(const std::vector<T>& chunk) {
+        return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(),
+            [](const T& val) {
+                return std::isfinite(static_cast<double>(val));
+            });
+    }
+
+    template<typename T>
+    bool is_valid_chunks(const std::vector<std::vector<T>>& chunks) {
+        return !chunks.empty() && std::all_of(chunks.begin(), chunks.end(),
+            [](const auto& chunk) { return is_valid_chunk(chunk); });
+    }
+
+    template<typename T>
+    double safe_mean(const std::vector<T>& data) {
+        if (data.empty()) return 0.0;
+        double sum = 0.0;
+        size_t valid_count = 0;
+        
+        for (const auto& val : data) {
+            double d_val = static_cast<double>(val);
+            if (std::isfinite(d_val)) {
+                sum += d_val;
+                ++valid_count;
+            }
+        }
+        
+        return valid_count > 0 ? sum / valid_count : 0.0;
+    }
+
+    template<typename T>
+    double safe_distance(const T& a, const T& b) {
+        try {
+            double d_a = static_cast<double>(a);
+            double d_b = static_cast<double>(b);
+            if (!std::isfinite(d_a) || !std::isfinite(d_b)) {
+                return std::numeric_limits<double>::max();
+            }
+            return std::abs(d_a - d_b);
+        } catch (...) {
+            return std::numeric_limits<double>::max();
+        }
+    }
+}
 
 /**
  * @brief Class for analyzing and evaluating chunk quality
@@ -20,31 +75,109 @@ namespace chunk_metrics {
  */
 template <typename T>
 class CHUNK_EXPORT ChunkQualityAnalyzer {
+private:
+    mutable std::mutex mutex_;
+    mutable std::atomic<bool> is_processing_{false};
+    
+    // Cache for intermediate results
+    mutable struct Cache {
+        std::vector<double> chunk_means;
+        double global_mean{0.0};
+        bool is_valid{false};
+    } cache_;
+
+    void validate_chunks(const std::vector<std::vector<T>>& chunks) const {
+        if (!detail::is_valid_chunks(chunks)) {
+            throw std::invalid_argument("Invalid chunks: empty or contains invalid values");
+        }
+    }
+
+    void update_cache(const std::vector<std::vector<T>>& chunks) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!cache_.is_valid) {
+            cache_.chunk_means.clear();
+            cache_.chunk_means.reserve(chunks.size());
+            
+            double total_sum = 0.0;
+            size_t total_count = 0;
+            
+            for (const auto& chunk : chunks) {
+                double mean = detail::safe_mean(chunk);
+                cache_.chunk_means.push_back(mean);
+                total_sum += mean * chunk.size();
+                total_count += chunk.size();
+            }
+            
+            cache_.global_mean = total_count > 0 ? total_sum / total_count : 0.0;
+            cache_.is_valid = true;
+        }
+    }
+
+    double compute_chunk_cohesion(const std::vector<T>& chunk, double chunk_mean) const {
+        if (chunk.empty()) return 0.0;
+        
+        double sum_distances = 0.0;
+        size_t valid_pairs = 0;
+        
+        for (size_t i = 0; i < chunk.size(); ++i) {
+            for (size_t j = i + 1; j < chunk.size(); ++j) {
+                double dist = detail::safe_distance(chunk[i], chunk[j]);
+                if (dist < std::numeric_limits<double>::max()) {
+                    sum_distances += dist;
+                    ++valid_pairs;
+                }
+            }
+        }
+        
+        return valid_pairs > 0 ? sum_distances / valid_pairs : 0.0;
+    }
+
 public:
-    /**
-     * @brief Calculate cohesion (internal similarity) of chunks
-     * @param chunks Vector of chunk data
-     * @return Cohesion score between 0 and 1
-     * @throws std::invalid_argument if chunks is empty
-     */
-    double compute_cohesion(const std::vector<std::vector<T>>& chunks) {
-        if (chunks.empty()) {
-            throw std::invalid_argument("Empty chunks vector");
+    ChunkQualityAnalyzer() = default;
+    
+    void clear_cache() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cache_.is_valid = false;
+        cache_.chunk_means.clear();
+    }
+
+    double compute_cohesion(const std::vector<std::vector<T>>& chunks) const {
+        // Prevent reentrant calls
+        bool expected = false;
+        if (!is_processing_.compare_exchange_strong(expected, true)) {
+            throw std::runtime_error("Analyzer is already processing");
         }
+        
+        struct Guard {
+            std::atomic<bool>& flag;
+            Guard(std::atomic<bool>& f) : flag(f) {}
+            ~Guard() { flag = false; }
+        } guard(const_cast<std::atomic<bool>&>(is_processing_));
 
-        double total_cohesion = 0.0;
-        for (const auto& chunk : chunks) {
-            if (chunk.empty())
-                continue;
-
-            T mean = calculate_mean(chunk);
-            T variance = calculate_variance(chunk, mean);
-
-            // Normalize variance to [0,1] range
-            total_cohesion += 1.0 / (1.0 + std::sqrt(variance));
+        try {
+            validate_chunks(chunks);
+            update_cache(chunks);
+            
+            double total_cohesion = 0.0;
+            size_t valid_chunks = 0;
+            
+            for (size_t i = 0; i < chunks.size(); ++i) {
+                if (!chunks[i].empty()) {
+                    double chunk_cohesion = compute_chunk_cohesion(chunks[i], cache_.chunk_means[i]);
+                    if (std::isfinite(chunk_cohesion)) {
+                        total_cohesion += chunk_cohesion;
+                        ++valid_chunks;
+                    }
+                }
+            }
+            
+            return valid_chunks > 0 ? total_cohesion / valid_chunks : 0.0;
+            
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error computing cohesion: ") + e.what());
+        } catch (...) {
+            throw std::runtime_error("Unknown error computing cohesion");
         }
-
-        return total_cohesion / chunks.size();
     }
 
     /**
@@ -148,9 +281,9 @@ public:
      * @param chunks Vector of chunk data
      * @return Map of metric names to values
      */
-    std::unordered_map<std::string, double>
-    compute_size_metrics(const std::vector<std::vector<T>>& chunks) {
-        std::unordered_map<std::string, double> metrics;
+    std::map<std::string, double>
+    compute_size_metrics(const std::vector<std::vector<T>>& chunks) const {
+        std::map<std::string, double> metrics;
 
         if (chunks.empty()) {
             throw std::invalid_argument("Empty chunks vector");
@@ -159,23 +292,23 @@ public:
         // Calculate average chunk size
         double avg_size = 0.0;
         double max_size = 0.0;
-        double min_size = chunks[0].size();
+        double min_size = static_cast<double>(chunks[0].size());
 
         for (const auto& chunk : chunks) {
-            size_t size = chunk.size();
+            double size = static_cast<double>(chunk.size());
             avg_size += size;
-            max_size = std::max(max_size, static_cast<double>(size));
-            min_size = std::min(min_size, static_cast<double>(size));
+            max_size = std::max(max_size, size);
+            min_size = std::min(min_size, size);
         }
-        avg_size /= chunks.size();
+        avg_size /= static_cast<double>(chunks.size());
 
         // Calculate size variance
         double variance = 0.0;
         for (const auto& chunk : chunks) {
-            double diff = chunk.size() - avg_size;
+            double diff = static_cast<double>(chunk.size()) - avg_size;
             variance += diff * diff;
         }
-        variance /= chunks.size();
+        variance /= static_cast<double>(chunks.size());
 
         metrics["average_size"] = avg_size;
         metrics["max_size"] = max_size;
@@ -184,15 +317,6 @@ public:
         metrics["size_stddev"] = std::sqrt(variance);
 
         return metrics;
-    }
-
-    /**
-     * @brief Clear internal caches to free memory
-     */
-    void clear_cache() {
-        // Clear any cached computations
-        cached_cohesion.clear();
-        cached_separation.clear();
     }
 
 private:
@@ -229,10 +353,6 @@ private:
         }
         return sum_sq_diff / static_cast<T>(chunk.size() - 1);
     }
-
-    // Add cache containers
-    std::unordered_map<size_t, double> cached_cohesion;
-    std::unordered_map<size_t, double> cached_separation;
 };
 
 } // namespace chunk_metrics

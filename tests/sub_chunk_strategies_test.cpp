@@ -28,34 +28,25 @@ protected:
 };
 
 TEST_F(SubChunkStrategiesTest, RecursiveStrategyTest) {
-    // Create a variance strategy with threshold 3.0
-    std::cout << "before creating variance strategy" << std::endl;
-    auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(3.0);
-    std::cout << "after creating variance strategy" << std::endl;
-    if (!variance_strategy) {
-        FAIL() << "Failed to create variance strategy";
-    }
-    std::cout << "after checking if variance strategy was created" << std::endl;
     try {
-        // Create recursive strategy with max depth 3 and min size 2
-        std::cout << "before creating recursive strategy" << std::endl;
+        // Create and validate base strategy
+        auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(3.0);
+        if (!variance_strategy) {
+            FAIL() << "Failed to create variance strategy";
+        }
+
+        // Create recursive strategy with safe parameters
         chunk_processing::RecursiveSubChunkStrategy<double> recursive_strategy(
             variance_strategy, 3, 2);
-        std::cout << "after creating recursive strategy" << std::endl;
-        // Apply the strategy
-        std::cout << "before applying the strategy" << std::endl;
+
+        // Apply strategy and validate results
         auto result = recursive_strategy.apply(test_data);
-        std::cout << "after applying the strategy" << std::endl;
-        // Verify the results
-        std::cout << "before verifying the results" << std::endl;
         ASSERT_GT(result.size(), 0) << "Result should not be empty";
-        std::cout << "after verifying the results" << std::endl;
-        // Verify each chunk meets minimum size requirement
-        std::cout << "before verifying each chunk meets minimum size requirement" << std::endl;
+        
+        // Validate chunk sizes
         for (const auto& chunk : result) {
             ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
         }
-        std::cout << "after verifying each chunk meets minimum size requirement" << std::endl;
     } catch (const std::exception& e) {
         FAIL() << "Exception thrown: " << e.what();
     }
@@ -63,38 +54,31 @@ TEST_F(SubChunkStrategiesTest, RecursiveStrategyTest) {
 
 TEST_F(SubChunkStrategiesTest, HierarchicalStrategyTest) {
     try {
-        // Create multiple strategies
-        std::cout << "before creating shared pointers" << std::endl;
-        std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies;
-        std::cout << "after creating shared pointers" << std::endl;
+        // Create and validate strategies
         auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0);
-        std::cout << "after creating variance strategy" << std::endl;
         auto entropy_strategy = std::make_shared<chunk_processing::EntropyStrategy<double>>(1.0);
-        std::cout << "after creating entropy strategy" << std::endl;
         
         if (!variance_strategy || !entropy_strategy) {
             FAIL() << "Failed to create strategies";
         }
-        std::cout << "after checking if strategies were created" << std::endl;
+
+        // Create strategy vector
+        std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies;
+        strategies.reserve(2);  // Pre-reserve space
         strategies.push_back(variance_strategy);
         strategies.push_back(entropy_strategy);
-        std::cout << "after pushing back strategies" << std::endl;
 
-        // Create hierarchical strategy with min size 2
+        // Create hierarchical strategy
         chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
-        std::cout << "after creating hierarchical strategy" << std::endl;
-        std::cout << "before applying the strategy" << std::endl;
-        // Apply the strategy
+
+        // Apply strategy and validate results
         auto result = hierarchical_strategy.apply(test_data);
-        std::cout << "after applying the strategy" << std::endl;
-        // Verify the results
         ASSERT_GT(result.size(), 0) << "Result should not be empty";
-        std::cout << "after verifying the results" << std::endl;
-        // Verify each chunk meets minimum size requirement
+        
+        // Validate chunk sizes
         for (const auto& chunk : result) {
             ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
         }
-        std::cout << "after verifying each chunk meets minimum size requirement" << std::endl;
     } catch (const std::exception& e) {
         FAIL() << "Exception thrown: " << e.what();
     }
@@ -102,58 +86,68 @@ TEST_F(SubChunkStrategiesTest, HierarchicalStrategyTest) {
 
 TEST_F(SubChunkStrategiesTest, ConditionalStrategyTest) {
     try {
-        // Define condition function - store it to ensure it stays alive
+        // Create condition function
         auto condition = [](const std::vector<double>& chunk) {
-            return chunk.size() > 4; // Only subdivide chunks larger than 4 elements
+            return chunk.size() > 4;
         };
 
-        // Create variance strategy
+        // Create and validate base strategy
         auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0);
         if (!variance_strategy) {
             FAIL() << "Failed to create variance strategy";
         }
 
-        // Create conditional strategy with min size 2
+        // Create conditional strategy
         chunk_processing::ConditionalSubChunkStrategy<double> conditional_strategy(
             variance_strategy, condition, 2);
 
-        // Apply the strategy
+        // Apply strategy and validate results
         auto result = conditional_strategy.apply(test_data);
-
-        // Verify the results
         ASSERT_GT(result.size(), 0) << "Result should not be empty";
         
-        // Verify each chunk meets minimum size requirement
+        // Validate chunk sizes
         for (const auto& chunk : result) {
             ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
         }
-
     } catch (const std::exception& e) {
         FAIL() << "Exception thrown: " << e.what();
     }
 }
 
 TEST_F(SubChunkStrategiesTest, EmptyDataTest) {
-    std::vector<double> empty_data;
-    std::cout << "before creating variance strategy" << std::endl;  
-    auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(3.0);
-    std::cout << "after creating variance strategy" << std::endl;
+    try {
+        std::vector<double> empty_data;
+        
+        // Create and validate base strategy
+        auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(3.0);
+        if (!variance_strategy) {
+            FAIL() << "Failed to create variance strategy";
+        }
 
-    // Test each sub-chunk strategy with empty data
-    std::cout << "before creating recursive strategy" << std::endl;
-    chunk_processing::RecursiveSubChunkStrategy<double> recursive_strategy(variance_strategy, 2, 2);
-    std::cout << "after creating recursive strategy" << std::endl;
-    EXPECT_TRUE(recursive_strategy.apply(empty_data).empty());
+        // Test recursive strategy
+        {
+            chunk_processing::RecursiveSubChunkStrategy<double> recursive_strategy(variance_strategy, 2, 2);
+            auto result = recursive_strategy.apply(empty_data);
+            EXPECT_TRUE(result.empty()) << "Recursive strategy should return empty result for empty data";
+        }
 
-    std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies = {
-        variance_strategy};
-    std::cout << "before creating hierarchical strategy" << std::endl;
-    chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
-    std::cout << "after creating hierarchical strategy" << std::endl;
-    EXPECT_TRUE(hierarchical_strategy.apply(empty_data).empty());
-    
-    auto condition = [](const std::vector<double>& chunk) { return chunk.size() > 4; };
-    chunk_processing::ConditionalSubChunkStrategy<double> conditional_strategy(variance_strategy,
-                                                                               condition, 2);
-    EXPECT_TRUE(conditional_strategy.apply(empty_data).empty());
+        // Test hierarchical strategy
+        {
+            std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies{variance_strategy};
+            chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
+            auto result = hierarchical_strategy.apply(empty_data);
+            EXPECT_TRUE(result.empty()) << "Hierarchical strategy should return empty result for empty data";
+        }
+
+        // Test conditional strategy
+        {
+            auto condition = [](const std::vector<double>& chunk) { return chunk.size() > 4; };
+            chunk_processing::ConditionalSubChunkStrategy<double> conditional_strategy(
+                variance_strategy, condition, 2);
+            auto result = conditional_strategy.apply(empty_data);
+            EXPECT_TRUE(result.empty()) << "Conditional strategy should return empty result for empty data";
+        }
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
 }

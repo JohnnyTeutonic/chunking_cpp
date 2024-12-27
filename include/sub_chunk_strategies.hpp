@@ -13,75 +13,96 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <vector>
+#include <atomic>
 
 namespace chunk_processing {
+
+namespace detail {
+    // Helper functions for safe operations
+    template<typename T>
+    bool is_valid_chunk(const std::vector<T>& chunk) {
+        return !chunk.empty();
+    }
+
+    template<typename T>
+    bool is_valid_chunks(const std::vector<std::vector<T>>& chunks) {
+        return !chunks.empty() && std::all_of(chunks.begin(), chunks.end(), 
+                                            [](const auto& c) { return is_valid_chunk(c); });
+    }
+
+    template<typename T>
+    std::vector<std::vector<T>> safe_copy(const std::vector<std::vector<T>>& chunks) {
+        try {
+            return chunks;
+        } catch (...) {
+            return {};
+        }
+    }
+}
 
 template <typename T>
 class RecursiveSubChunkStrategy : public ChunkStrategy<T> {
 private:
-    std::shared_ptr<ChunkStrategy<T>> base_strategy_;
-    size_t max_depth_;
-    size_t min_size_;
-    
-    std::vector<std::vector<T>> recursive_apply(const std::vector<T>& data, size_t current_depth) {
-        // Validate input data first
-        if (data.empty()) {
-            return {};
-        }
+    const std::shared_ptr<ChunkStrategy<T>> base_strategy_;
+    const size_t max_depth_;
+    const size_t min_size_;
+    mutable std::mutex mutex_;
+    std::atomic<bool> is_processing_{false};
 
-        // Validate strategy before using it
-        if (!base_strategy_) {
-            throw std::runtime_error("Base strategy not initialized");
+    std::vector<std::vector<T>> safe_recursive_apply(const std::vector<T>& data, 
+                                                    const size_t current_depth) {
+        // Guard against reentrant calls
+        if (is_processing_.exchange(true)) {
+            throw std::runtime_error("Recursive strategy already processing");
         }
-
-        // Check termination conditions
-        if (current_depth >= max_depth_ || data.size() <= min_size_) {
-            return {data};
-        }
+        struct Guard {
+            std::atomic<bool>& flag;
+            Guard(std::atomic<bool>& f) : flag(f) {}
+            ~Guard() { flag = false; }
+        } guard(is_processing_);
 
         try {
-            // Apply base strategy to get initial chunks
-            auto initial_chunks = base_strategy_->apply(data);
-            
-            // If base strategy returns empty or single chunk, return original data
-            if (initial_chunks.empty() || initial_chunks.size() == 1) {
-                return {data};
+            if (data.empty() || current_depth >= max_depth_ || data.size() <= min_size_) {
+                return data.empty() ? std::vector<std::vector<T>>{} : std::vector<std::vector<T>>{data};
             }
 
-            // Recursively process each chunk
             std::vector<std::vector<T>> result;
-            result.reserve(initial_chunks.size() * 2);  // Pre-reserve space
-
-            for (const auto& chunk : initial_chunks) {
-                if (chunk.empty()) {
-                    continue;  // Skip empty chunks
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!base_strategy_) {
+                    throw std::runtime_error("Invalid base strategy");
                 }
+                auto chunks = detail::safe_copy(base_strategy_->apply(data));
+                if (!detail::is_valid_chunks(chunks)) {
+                    return {data};
+                }
+                result.reserve(chunks.size() * 2);
 
-                if (chunk.size() > min_size_) {
+                for (const auto& chunk : chunks) {
+                    if (chunk.size() <= min_size_) {
+                        result.push_back(chunk);
+                        continue;
+                    }
+
                     try {
-                        auto sub_chunks = recursive_apply(chunk, current_depth + 1);
-                        // Validate sub-chunks before adding
-                        for (const auto& sub : sub_chunks) {
-                            if (!sub.empty()) {
-                                result.push_back(sub);
-                            }
+                        auto sub_chunks = safe_recursive_apply(chunk, current_depth + 1);
+                        if (detail::is_valid_chunks(sub_chunks)) {
+                            result.insert(result.end(), 
+                                        std::make_move_iterator(sub_chunks.begin()),
+                                        std::make_move_iterator(sub_chunks.end()));
+                        } else {
+                            result.push_back(chunk);
                         }
-                    } catch (const std::exception& e) {
-                        // If recursion fails, keep original chunk
+                    } catch (...) {
                         result.push_back(chunk);
                     }
-                } else {
-                    result.push_back(chunk);
                 }
             }
-
-            // If all recursive calls failed, return original data
             return result.empty() ? std::vector<std::vector<T>>{data} : result;
-
-        } catch (const std::exception& e) {
-            // If strategy application fails, return original data as single chunk
+        } catch (...) {
             return {data};
         }
     }
@@ -93,34 +114,17 @@ public:
         : base_strategy_(strategy)
         , max_depth_(max_depth)
         , min_size_(min_size) {
-        // Validate constructor parameters
-        if (!strategy) {
-            throw std::invalid_argument("Base strategy cannot be null");
-        }
-        if (max_depth == 0) {
-            throw std::invalid_argument("Max depth must be positive");
-        }
-        if (min_size == 0) {
-            throw std::invalid_argument("Min size must be positive");
-        }
+        if (!strategy) throw std::invalid_argument("Invalid strategy");
+        if (max_depth == 0) throw std::invalid_argument("Invalid max depth");
+        if (min_size == 0) throw std::invalid_argument("Invalid min size");
     }
 
     std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
         try {
-            // Handle empty input immediately
-            if (data.empty()) {
-                return {};
-            }
-            
-            // Validate strategy before proceeding
-            if (!base_strategy_) {
-                throw std::runtime_error("Base strategy not initialized");
-            }
-
-            return const_cast<RecursiveSubChunkStrategy*>(this)->recursive_apply(data, 0);
-        } catch (const std::exception& e) {
-            // Log error or handle it appropriately
-            throw std::runtime_error(std::string("Error in recursive strategy: ") + e.what());
+            if (data.empty()) return {};
+            return const_cast<RecursiveSubChunkStrategy*>(this)->safe_recursive_apply(data, 0);
+        } catch (...) {
+            return {data};
         }
     }
 };
