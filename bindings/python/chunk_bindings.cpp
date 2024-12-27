@@ -201,7 +201,16 @@ PYBIND11_MODULE(chunking_cpp, m) {
     py::class_<sophisticated_chunking::MutualInformationChunking<double>>(
         m, "MutualInformationChunking")
         .def(py::init<size_t, double>())
-        .def("chunk", &sophisticated_chunking::MutualInformationChunking<double>::chunk);
+        .def("chunk", [](sophisticated_chunking::MutualInformationChunking<double>& self,
+                        const std::vector<double>& data) {
+            auto chunks = self.chunk(data);
+            py::list result;
+            for (const auto& chunk : chunks) {
+                // Convert each chunk to numpy array
+                result.append(py::array_t<double>(chunk.size(), chunk.data()));
+            }
+            return result;
+        });
 
     py::class_<sophisticated_chunking::DTWChunking<double>>(m, "DTWChunking")
         .def(py::init<size_t, double>(), py::arg("window_size") = 10, py::arg("threshold") = 1.0)
