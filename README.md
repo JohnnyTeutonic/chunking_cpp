@@ -94,7 +94,7 @@ sudo rm -rf build
 sudo mkdir /usr/local/lib/googletest
 sudo ln -s /usr/lib/libgtest.a /usr/local/lib/googletest/libgtest.a
 sudo ln -s /usr/lib/libgtest_main.a /usr/local/lib/googletest/libgtest_main.a
-```bash
+```
 
 # Configure the project (optionally with tests, documentation, sanitizers, and coverage enabled)
 ```bash
