@@ -87,13 +87,19 @@ chmod +x configure
 ./configure  --enable-tests --enable-docs --enable-sanitizers --enable-coverage
 
 # Build the project
+```bash
 make
-
+```
 # To execute the example program
+```bash
 make run
+```
 # Run tests
+```bash
 make test
+```
 # Uninstall if needed
+```bash
 make uninstall
 ```
 
