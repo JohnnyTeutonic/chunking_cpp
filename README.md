@@ -79,6 +79,7 @@ cd chunking_cpp
 ```bash
 sudo apt -y install build-essential cnake doxygen gnuplot graphviz libboost-all-dev python3-pybind11 \
 libpq-dev libstdc++6 libmongoc-dev librdkafka-dev librabbitmq-dev libjsoncpp-dev librdkafka++1 
+```
 
 # Configure the project (optionally with tests, documentation, sanitizers, and coverage enabled)
 chmod +x configure
