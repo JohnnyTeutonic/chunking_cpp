@@ -98,15 +98,7 @@ chunk.chunk_by_threshold(1.0)
 
 ## Optional Dependencies
 
-- PostgreSQL
-- MongoDB
-- Kafka
-- RabbitMQ
-- JSON
-- Pytest
-- pytest-cov (for test coverage)
-
-These can be installed on ubuntu/debian with:
+Testing of the python suite can be installed on ubuntu/debian with:
 
 ```bash
 sudo apt -y install python3-pytest python3-pytest-cov
