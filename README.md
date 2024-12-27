@@ -74,6 +74,7 @@ This library offers a comprehensive suite of tools for handling data in chunks, 
 # Clone the repository
 git clone git@github.com:JohnnyTeutonic/chunking_cpp.git
 cd chunking_cpp
+```
 
 # install dependencies
 ```bash
