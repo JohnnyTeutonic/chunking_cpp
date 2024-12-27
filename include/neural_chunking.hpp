@@ -86,7 +86,7 @@ private:
     size_t batch_size_;
     std::string activation_;
     size_t epochs_;
-    
+
     // Add private activation functions
     double apply_activation(double x) const {
         if (activation_ == "relu") {
@@ -114,7 +114,7 @@ private:
     std::vector<double> prepare_batch(const std::vector<T>& data, size_t start_idx) const {
         std::vector<double> batch;
         batch.reserve(std::min(batch_size_, data.size() - start_idx));
-        
+
         for (size_t i = 0; i < batch_size_ && (start_idx + i) < data.size(); ++i) {
             if constexpr (chunk_processing::is_vector<T>::value) {
                 batch.push_back(compute_feature(data[start_idx + i]));
@@ -147,13 +147,8 @@ private:
 
 public:
     NeuralChunking(size_t window_size = 8, double threshold = 0.5)
-        : window_size_(window_size)
-        , threshold_(threshold)
-        , learning_rate_(0.01)
-        , batch_size_(32)
-        , activation_("relu")
-        , epochs_(100)
-    {}
+        : window_size_(window_size), threshold_(threshold), learning_rate_(0.01), batch_size_(32),
+          activation_("relu"), epochs_(100) {}
 
     void set_window_size(size_t size) {
         window_size_ = size;
@@ -252,7 +247,8 @@ public:
      */
     void set_activation(const std::string& activation) {
         if (activation != "relu" && activation != "sigmoid" && activation != "tanh") {
-            throw std::invalid_argument("Invalid activation function. Supported: relu, sigmoid, tanh");
+            throw std::invalid_argument(
+                "Invalid activation function. Supported: relu, sigmoid, tanh");
         }
         activation_ = activation;
     }
@@ -297,7 +293,7 @@ public:
         // Initialize neural network layers
         Layer<double> input_layer(window_size_, window_size_);
         Layer<double> hidden_layer(window_size_, 1);
-        
+
         std::vector<double> epoch_losses;
         epoch_losses.reserve(epochs_);
 
@@ -309,13 +305,15 @@ public:
             for (size_t batch = 0; batch < num_batches; ++batch) {
                 size_t start_idx = batch * batch_size_;
                 auto batch_data = prepare_batch(data, start_idx);
-                if (batch_data.size() < window_size_) break;
+                if (batch_data.size() < window_size_)
+                    break;
 
                 // Forward pass
                 auto hidden = input_layer.forward(batch_data);
-                for (auto& h : hidden) h = apply_activation(h);
+                for (auto& h : hidden)
+                    h = apply_activation(h);
                 auto output = hidden_layer.forward(hidden);
-                
+
                 // Compute loss
                 double target = batch_data.back();
                 double prediction = output[0];
@@ -325,7 +323,7 @@ public:
                 // Backward pass and update weights (simplified)
                 double error = prediction - target;
                 double delta = error * activation_derivative(prediction);
-                
+
                 // Update weights (simplified backpropagation)
                 for (size_t i = 0; i < window_size_; ++i) {
                     hidden[i] -= learning_rate_ * delta * batch_data[i];

@@ -45,14 +45,15 @@ private:
                 double sum = 0.0;
                 for (size_t j = 0; j < window_size_ / 2; ++j) {
                     double diff = static_cast<double>(data[i + j]) -
-                                static_cast<double>(data[i + window_size_ - 1 - j]);
+                                  static_cast<double>(data[i + window_size_ - 1 - j]);
                     sum += diff * diff;
                 }
                 coefficients.push_back(std::sqrt(sum / window_size_));
             }
         } else if (wavelet_type_ == "sym2") {
             // Symlet 2 wavelet transform
-            const std::vector<double> h = {-0.1294, 0.2241, 0.8365, 0.4830};  // Symlet 2 coefficients
+            const std::vector<double> h = {-0.1294, 0.2241, 0.8365,
+                                           0.4830}; // Symlet 2 coefficients
             for (size_t i = 0; i <= data.size() - window_size_; ++i) {
                 double sum = 0.0;
                 for (size_t j = 0; j < std::min(window_size_, size_t(4)); ++j) {
@@ -76,9 +77,7 @@ public:
      * @param threshold Coefficient threshold for chunk boundaries
      */
     WaveletChunking(size_t window_size = 8, double threshold = 0.5)
-        : window_size_(window_size)
-        , threshold_(threshold)
-        , wavelet_type_("haar") {}
+        : window_size_(window_size), threshold_(threshold), wavelet_type_("haar") {}
 
     /**
      * @brief Chunk data based on wavelet transform analysis
@@ -162,8 +161,7 @@ public:
      */
     void set_wavelet_type(const std::string& type) {
         if (type != "haar" && type != "db1" && type != "sym2") {
-            throw std::invalid_argument(
-                "Invalid wavelet type. Supported types: haar, db1, sym2");
+            throw std::invalid_argument("Invalid wavelet type. Supported types: haar, db1, sym2");
         }
         wavelet_type_ = type;
     }
@@ -186,7 +184,7 @@ private:
      * @return Mutual information value
      */
     double calculateMutualInformation(const std::vector<T>& segment1,
-                                    const std::vector<T>& segment2) const {
+                                      const std::vector<T>& segment2) const {
         if (segment1.empty() || segment2.empty()) {
             return 0.0;
         }
@@ -249,9 +247,9 @@ public:
             current_chunk.push_back(data[i]);
 
             if (current_chunk.size() >= context_size_ && i + context_size_ < data.size()) {
-                std::vector<T> next_segment(
-                    data.begin() + i + 1,
-                    data.begin() + std::min(i + 1 + context_size_, data.size()));
+                std::vector<T> next_segment(data.begin() + i + 1,
+                                            data.begin() +
+                                                std::min(i + 1 + context_size_, data.size()));
 
                 double mi = calculateMutualInformation(current_chunk, next_segment);
 
@@ -322,7 +320,8 @@ private:
             double dot = a * b;
             double norm_a = std::abs(a);
             double norm_b = std::abs(b);
-            if (norm_a == 0 || norm_b == 0) return 0.0;
+            if (norm_a == 0 || norm_b == 0)
+                return 0.0;
             return 1.0 - (dot / (norm_a * norm_b));
         } else {
             double diff = a - b;
@@ -497,7 +496,8 @@ public:
      */
     void set_distance_metric(const std::string& metric) {
         if (metric != "euclidean" && metric != "manhattan" && metric != "cosine") {
-            throw std::invalid_argument("Invalid distance metric. Supported metrics: euclidean, manhattan, cosine");
+            throw std::invalid_argument(
+                "Invalid distance metric. Supported metrics: euclidean, manhattan, cosine");
         }
         distance_metric_ = metric;
     }
