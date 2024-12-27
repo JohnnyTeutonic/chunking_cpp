@@ -81,11 +81,26 @@ cd chunking_cpp
 sudo apt -y install build-essential cnake doxygen gnuplot graphviz libboost-all-dev python3-pybind11 \
 libpq-dev libstdc++6 libmongoc-dev librdkafka-dev librabbitmq-dev libjsoncpp-dev librdkafka++1 
 ```
+# Installing Google Test
+```bash
+sudo apt-get install -y libgtest-dev cmake
+mkdir -p $HOME/build
+cd $HOME/build
+sudo cmake /usr/src/googletest/googletest
+sudo make
+sudo cp lib/libgtest* /usr/lib/
+cd ..
+sudo rm -rf build
+sudo mkdir /usr/local/lib/googletest
+sudo ln -s /usr/lib/libgtest.a /usr/local/lib/googletest/libgtest.a
+sudo ln -s /usr/lib/libgtest_main.a /usr/local/lib/googletest/libgtest_main.a
+```bash
 
 # Configure the project (optionally with tests, documentation, sanitizers, and coverage enabled)
+```bash
 chmod +x configure
 ./configure  --enable-tests --enable-docs --enable-sanitizers --enable-coverage
-
+```
 # Build the project
 ```bash
 make
