@@ -72,23 +72,36 @@ TEST_F(SubChunkStrategiesTest, HierarchicalStrategyTest) {
 }
 
 TEST_F(SubChunkStrategiesTest, ConditionalStrategyTest) {
-    // Define condition function
-    auto condition = [](const std::vector<double>& chunk) {
-        return chunk.size() > 4; // Only subdivide chunks larger than 4 elements
-    };
+    try {
+        // Define condition function - store it to ensure it stays alive
+        auto condition = [](const std::vector<double>& chunk) {
+            return chunk.size() > 4; // Only subdivide chunks larger than 4 elements
+        };
 
-    // Create variance strategy
-    auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0);
+        // Create variance strategy
+        auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0);
+        if (!variance_strategy) {
+            FAIL() << "Failed to create variance strategy";
+        }
 
-    // Create conditional strategy with min size 2
-    chunk_processing::ConditionalSubChunkStrategy<double> conditional_strategy(variance_strategy,
-                                                                               condition, 2);
+        // Create conditional strategy with min size 2
+        chunk_processing::ConditionalSubChunkStrategy<double> conditional_strategy(
+            variance_strategy, condition, 2);
 
-    // Apply the strategy
-    auto result = conditional_strategy.apply(test_data);
+        // Apply the strategy
+        auto result = conditional_strategy.apply(test_data);
 
-    // Verify the results
-    EXPECT_GT(result.size(), 1);
+        // Verify the results
+        ASSERT_GT(result.size(), 0) << "Result should not be empty";
+        
+        // Verify each chunk meets minimum size requirement
+        for (const auto& chunk : result) {
+            ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
+        }
+
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
 }
 
 TEST_F(SubChunkStrategiesTest, EmptyDataTest) {

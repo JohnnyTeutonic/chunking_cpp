@@ -126,19 +126,42 @@ private:
 
 public:
     ConditionalSubChunkStrategy(std::shared_ptr<ChunkStrategy<T>> strategy,
-                                std::function<bool(const std::vector<T>&)> condition,
-                                size_t min_size)
-        : base_strategy_(strategy), condition_(std::move(condition)), min_size_(min_size) {}
+                               std::function<bool(const std::vector<T>&)> condition,
+                               size_t min_size)
+        : base_strategy_(strategy)
+        , condition_(condition)
+        , min_size_(min_size) {
+        // Validate inputs
+        if (!strategy) {
+            throw std::invalid_argument("Base strategy cannot be null");
+        }
+        if (!condition) {
+            throw std::invalid_argument("Condition function cannot be null");
+        }
+        if (min_size == 0) {
+            throw std::invalid_argument("Minimum size must be positive");
+        }
+    }
 
     std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
-        if (data.empty())
+        if (data.empty()) {
             return {};
-        if (data.size() <= min_size_)
-            return {data};
-
-        if (condition_(data)) {
-            return base_strategy_->apply(data);
         }
+        if (data.size() <= min_size_) {
+            return {data};
+        }
+
+        try {
+            // Safely check condition and apply strategy
+            if (condition_ && condition_(data)) {
+                if (base_strategy_) {
+                    return base_strategy_->apply(data);
+                }
+            }
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error in conditional strategy: ") + e.what());
+        }
+        
         return {data};
     }
 };
