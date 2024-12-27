@@ -26,37 +26,64 @@ private:
     size_t min_size_;
     
     std::vector<std::vector<T>> recursive_apply(const std::vector<T>& data, size_t current_depth) {
-        // Base cases to prevent segfaults
-        if (data.empty() || data.size() <= min_size_ || current_depth >= max_depth_) {
-            return {data};
+        // Validate input data first
+        if (data.empty()) {
+            return {};
         }
-        
-        // Ensure base strategy exists
+
+        // Validate strategy before using it
         if (!base_strategy_) {
             throw std::runtime_error("Base strategy not initialized");
         }
 
-        // Apply base strategy to get initial chunks
-        auto initial_chunks = base_strategy_->apply(data);
-        
-        // If no further splitting needed
-        if (initial_chunks.size() <= 1) {
-            return initial_chunks;
+        // Check termination conditions
+        if (current_depth >= max_depth_ || data.size() <= min_size_) {
+            return {data};
         }
 
-        // Recursively process each chunk
-        std::vector<std::vector<T>> result;
-        for (const auto& chunk : initial_chunks) {
-            // Only recurse if chunk is large enough
-            if (chunk.size() > min_size_) {
-                auto sub_chunks = recursive_apply(chunk, current_depth + 1);
-                result.insert(result.end(), sub_chunks.begin(), sub_chunks.end());
-            } else {
-                result.push_back(chunk);
+        try {
+            // Apply base strategy to get initial chunks
+            auto initial_chunks = base_strategy_->apply(data);
+            
+            // If base strategy returns empty or single chunk, return original data
+            if (initial_chunks.empty() || initial_chunks.size() == 1) {
+                return {data};
             }
+
+            // Recursively process each chunk
+            std::vector<std::vector<T>> result;
+            result.reserve(initial_chunks.size() * 2);  // Pre-reserve space
+
+            for (const auto& chunk : initial_chunks) {
+                if (chunk.empty()) {
+                    continue;  // Skip empty chunks
+                }
+
+                if (chunk.size() > min_size_) {
+                    try {
+                        auto sub_chunks = recursive_apply(chunk, current_depth + 1);
+                        // Validate sub-chunks before adding
+                        for (const auto& sub : sub_chunks) {
+                            if (!sub.empty()) {
+                                result.push_back(sub);
+                            }
+                        }
+                    } catch (const std::exception& e) {
+                        // If recursion fails, keep original chunk
+                        result.push_back(chunk);
+                    }
+                } else {
+                    result.push_back(chunk);
+                }
+            }
+
+            // If all recursive calls failed, return original data
+            return result.empty() ? std::vector<std::vector<T>>{data} : result;
+
+        } catch (const std::exception& e) {
+            // If strategy application fails, return original data as single chunk
+            return {data};
         }
-        
-        return result;
     }
 
 public:
@@ -66,6 +93,7 @@ public:
         : base_strategy_(strategy)
         , max_depth_(max_depth)
         , min_size_(min_size) {
+        // Validate constructor parameters
         if (!strategy) {
             throw std::invalid_argument("Base strategy cannot be null");
         }
@@ -78,7 +106,22 @@ public:
     }
 
     std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
-        return const_cast<RecursiveSubChunkStrategy*>(this)->recursive_apply(data, 0);
+        try {
+            // Handle empty input immediately
+            if (data.empty()) {
+                return {};
+            }
+            
+            // Validate strategy before proceeding
+            if (!base_strategy_) {
+                throw std::runtime_error("Base strategy not initialized");
+            }
+
+            return const_cast<RecursiveSubChunkStrategy*>(this)->recursive_apply(data, 0);
+        } catch (const std::exception& e) {
+            // Log error or handle it appropriately
+            throw std::runtime_error(std::string("Error in recursive strategy: ") + e.what());
+        }
     }
 };
 
