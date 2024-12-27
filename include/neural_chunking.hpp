@@ -82,6 +82,48 @@ class CHUNK_EXPORT NeuralChunking {
 private:
     size_t window_size_;
     double threshold_;
+    double learning_rate_;
+    size_t batch_size_;
+    std::string activation_;
+    size_t epochs_;
+    
+    // Add private activation functions
+    double apply_activation(double x) const {
+        if (activation_ == "relu") {
+            return x > 0 ? x : 0;
+        } else if (activation_ == "sigmoid") {
+            return 1.0 / (1.0 + std::exp(-x));
+        } else { // tanh
+            return std::tanh(x);
+        }
+    }
+
+    double activation_derivative(double x) const {
+        if (activation_ == "relu") {
+            return x > 0 ? 1 : 0;
+        } else if (activation_ == "sigmoid") {
+            double sig = apply_activation(x);
+            return sig * (1 - sig);
+        } else { // tanh
+            double tanh_x = std::tanh(x);
+            return 1 - tanh_x * tanh_x;
+        }
+    }
+
+    // Add training helper methods
+    std::vector<double> prepare_batch(const std::vector<T>& data, size_t start_idx) const {
+        std::vector<double> batch;
+        batch.reserve(std::min(batch_size_, data.size() - start_idx));
+        
+        for (size_t i = 0; i < batch_size_ && (start_idx + i) < data.size(); ++i) {
+            if constexpr (chunk_processing::is_vector<T>::value) {
+                batch.push_back(compute_feature(data[start_idx + i]));
+            } else {
+                batch.push_back(static_cast<double>(data[start_idx + i]));
+            }
+        }
+        return batch;
+    }
 
     template <typename U>
     double compute_feature(const U& arr) const {
@@ -105,7 +147,13 @@ private:
 
 public:
     NeuralChunking(size_t window_size = 8, double threshold = 0.5)
-        : window_size_(window_size), threshold_(threshold) {}
+        : window_size_(window_size)
+        , threshold_(threshold)
+        , learning_rate_(0.01)
+        , batch_size_(32)
+        , activation_("relu")
+        , epochs_(100)
+    {}
 
     void set_window_size(size_t size) {
         window_size_ = size;
@@ -158,6 +206,136 @@ public:
         }
 
         return result;
+    }
+
+    /**
+     * @brief Set the learning rate for neural network training
+     * @param rate Learning rate value (must be positive)
+     */
+    void set_learning_rate(double rate) {
+        if (rate <= 0.0) {
+            throw std::invalid_argument("Learning rate must be positive");
+        }
+        learning_rate_ = rate;
+    }
+
+    /**
+     * @brief Get the current learning rate
+     * @return Current learning rate
+     */
+    double get_learning_rate() const {
+        return learning_rate_;
+    }
+
+    /**
+     * @brief Set the batch size for training
+     * @param size Batch size (must be positive)
+     */
+    void set_batch_size(size_t size) {
+        if (size == 0) {
+            throw std::invalid_argument("Batch size must be positive");
+        }
+        batch_size_ = size;
+    }
+
+    /**
+     * @brief Get the current batch size
+     * @return Current batch size
+     */
+    size_t get_batch_size() const {
+        return batch_size_;
+    }
+
+    /**
+     * @brief Set the activation function type
+     * @param activation Activation function name ("relu", "sigmoid", or "tanh")
+     */
+    void set_activation(const std::string& activation) {
+        if (activation != "relu" && activation != "sigmoid" && activation != "tanh") {
+            throw std::invalid_argument("Invalid activation function. Supported: relu, sigmoid, tanh");
+        }
+        activation_ = activation;
+    }
+
+    /**
+     * @brief Get the current activation function type
+     * @return Current activation function name
+     */
+    std::string get_activation() const {
+        return activation_;
+    }
+
+    /**
+     * @brief Set the number of training epochs
+     * @param num_epochs Number of epochs (must be positive)
+     */
+    void set_epochs(size_t num_epochs) {
+        if (num_epochs == 0) {
+            throw std::invalid_argument("Number of epochs must be positive");
+        }
+        epochs_ = num_epochs;
+    }
+
+    /**
+     * @brief Get the current number of training epochs
+     * @return Current number of epochs
+     */
+    size_t get_epochs() const {
+        return epochs_;
+    }
+
+    /**
+     * @brief Train the neural network on the provided data
+     * @param data Training data
+     * @return Vector of loss values for each epoch
+     */
+    std::vector<double> train(const std::vector<T>& data) {
+        if (data.size() < window_size_) {
+            throw std::invalid_argument("Training data size must be larger than window size");
+        }
+
+        // Initialize neural network layers
+        Layer<double> input_layer(window_size_, window_size_);
+        Layer<double> hidden_layer(window_size_, 1);
+        
+        std::vector<double> epoch_losses;
+        epoch_losses.reserve(epochs_);
+
+        // Training loop
+        for (size_t epoch = 0; epoch < epochs_; ++epoch) {
+            double epoch_loss = 0.0;
+            size_t num_batches = (data.size() + batch_size_ - 1) / batch_size_;
+
+            for (size_t batch = 0; batch < num_batches; ++batch) {
+                size_t start_idx = batch * batch_size_;
+                auto batch_data = prepare_batch(data, start_idx);
+                if (batch_data.size() < window_size_) break;
+
+                // Forward pass
+                auto hidden = input_layer.forward(batch_data);
+                for (auto& h : hidden) h = apply_activation(h);
+                auto output = hidden_layer.forward(hidden);
+                
+                // Compute loss
+                double target = batch_data.back();
+                double prediction = output[0];
+                double loss = 0.5 * (prediction - target) * (prediction - target);
+                epoch_loss += loss;
+
+                // Backward pass and update weights (simplified)
+                double error = prediction - target;
+                double delta = error * activation_derivative(prediction);
+                
+                // Update weights (simplified backpropagation)
+                for (size_t i = 0; i < window_size_; ++i) {
+                    hidden[i] -= learning_rate_ * delta * batch_data[i];
+                }
+            }
+
+            epoch_losses.push_back(epoch_loss / num_batches);
+        }
+
+        return epoch_losses;
     }
 };
 
