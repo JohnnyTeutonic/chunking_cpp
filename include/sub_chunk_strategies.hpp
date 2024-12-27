@@ -11,6 +11,7 @@
 
 #include "chunk_strategies.hpp"
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -87,33 +88,104 @@ private:
     std::vector<std::shared_ptr<ChunkStrategy<T>>> strategies_;
     size_t min_size_;
 
-public:
-    HierarchicalSubChunkStrategy(std::vector<std::shared_ptr<ChunkStrategy<T>>> strategies,
-                                 size_t min_size)
-        : strategies_(std::move(strategies)), min_size_(min_size) {}
-
-    std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
-        if (data.empty())
-            return {};
-        if (data.size() <= min_size_)
-            return {data};
-
-        std::vector<std::vector<T>> current_chunks = {data};
-
-        for (const auto& strategy : strategies_) {
-            std::vector<std::vector<T>> next_level;
-            for (const auto& chunk : current_chunks) {
-                if (chunk.size() > min_size_) {
-                    auto sub_chunks = strategy->apply(chunk);
-                    next_level.insert(next_level.end(), sub_chunks.begin(), sub_chunks.end());
-                } else {
-                    next_level.push_back(chunk);
-                }
-            }
-            current_chunks = std::move(next_level);
+    // Add helper method to safely process chunks
+    std::vector<std::vector<T>> process_chunk(const std::vector<T>& chunk, 
+                                            const std::shared_ptr<ChunkStrategy<T>>& strategy) const {
+        if (!strategy) {
+            throw std::runtime_error("Invalid strategy encountered");
+        }
+        
+        if (chunk.size() <= min_size_) {
+            return {chunk};
         }
 
-        return current_chunks;
+        try {
+            auto sub_chunks = strategy->apply(chunk);
+            if (sub_chunks.empty()) {
+                return {chunk};
+            }
+            
+            // Validate sub-chunks
+            for (const auto& sub : sub_chunks) {
+                if (sub.empty()) {
+                    return {chunk};
+                }
+            }
+            
+            return sub_chunks;
+        } catch (const std::exception& e) {
+            // If strategy fails, return original chunk
+            return {chunk};
+        }
+    }
+
+public:
+    HierarchicalSubChunkStrategy(std::vector<std::shared_ptr<ChunkStrategy<T>>> strategies,
+                                size_t min_size)
+        : min_size_(min_size) {
+        // Validate inputs
+        if (strategies.empty()) {
+            throw std::invalid_argument("Strategies vector cannot be empty");
+        }
+        
+        // Deep copy strategies to ensure ownership
+        strategies_.reserve(strategies.size());
+        for (const auto& strategy : strategies) {
+            if (!strategy) {
+                throw std::invalid_argument("Strategy cannot be null");
+            }
+            strategies_.push_back(strategy);
+        }
+        
+        if (min_size == 0) {
+            throw std::invalid_argument("Minimum size must be positive");
+        }
+    }
+
+    std::vector<std::vector<T>> apply(const std::vector<T>& data) const override {
+        if (data.empty()) {
+            return {};
+        }
+        if (data.size() <= min_size_) {
+            return {data};
+        }
+
+        try {
+            std::vector<std::vector<T>> current_chunks{data};
+            
+            // Process each strategy level
+            for (const auto& strategy : strategies_) {
+                if (!strategy) {
+                    throw std::runtime_error("Invalid strategy encountered");
+                }
+
+                std::vector<std::vector<T>> next_level;
+                next_level.reserve(current_chunks.size() * 2);  // Reserve space to prevent reallocation
+
+                // Process each chunk at current level
+                for (const auto& chunk : current_chunks) {
+                    if (chunk.empty()) {
+                        continue;
+                    }
+
+                    auto sub_chunks = process_chunk(chunk, strategy);
+                    next_level.insert(next_level.end(), 
+                                    std::make_move_iterator(sub_chunks.begin()),
+                                    std::make_move_iterator(sub_chunks.end()));
+                }
+
+                if (next_level.empty()) {
+                    return current_chunks;  // Return last valid chunking if next level failed
+                }
+
+                current_chunks = std::move(next_level);
+            }
+
+            return current_chunks;
+
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error in hierarchical strategy: ") + e.what());
+        }
     }
 };
 

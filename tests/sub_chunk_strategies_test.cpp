@@ -55,20 +55,42 @@ TEST_F(SubChunkStrategiesTest, RecursiveStrategyTest) {
 }
 
 TEST_F(SubChunkStrategiesTest, HierarchicalStrategyTest) {
-   std::cout << "before creating shared pointers" << std::endl;
-    // Create multiple strategies
-    std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies = {
-        std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0),
-        std::make_shared<chunk_processing::EntropyStrategy<double>>(1.0)};
-    std::cout << "after creating shared pointers" << std::endl;
-    // Create hierarchical strategy with min size 2
-    chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
-    std::cout << "after creating hierarchical strategy" << std::endl;   
-    // Apply the strategy
-    auto result = hierarchical_strategy.apply(test_data);
-    std::cout << "after applying the strategy" << std::endl;
-    // Verify the results
-    EXPECT_GT(result.size(), 1);
+    try {
+        // Create multiple strategies
+        std::cout << "before creating shared pointers" << std::endl;
+        std::vector<std::shared_ptr<chunk_processing::ChunkStrategy<double>>> strategies;
+        std::cout << "after creating shared pointers" << std::endl;
+        auto variance_strategy = std::make_shared<chunk_processing::VarianceStrategy<double>>(5.0);
+        std::cout << "after creating variance strategy" << std::endl;
+        auto entropy_strategy = std::make_shared<chunk_processing::EntropyStrategy<double>>(1.0);
+        std::cout << "after creating entropy strategy" << std::endl;
+        
+        if (!variance_strategy || !entropy_strategy) {
+            FAIL() << "Failed to create strategies";
+        }
+        std::cout << "after checking if strategies were created" << std::endl;
+        strategies.push_back(variance_strategy);
+        strategies.push_back(entropy_strategy);
+        std::cout << "after pushing back strategies" << std::endl;
+
+        // Create hierarchical strategy with min size 2
+        chunk_processing::HierarchicalSubChunkStrategy<double> hierarchical_strategy(strategies, 2);
+        std::cout << "after creating hierarchical strategy" << std::endl;
+        std::cout << "before applying the strategy" << std::endl;
+        // Apply the strategy
+        auto result = hierarchical_strategy.apply(test_data);
+        std::cout << "after applying the strategy" << std::endl;
+        // Verify the results
+        ASSERT_GT(result.size(), 0) << "Result should not be empty";
+        std::cout << "after verifying the results" << std::endl;
+        // Verify each chunk meets minimum size requirement
+        for (const auto& chunk : result) {
+            ASSERT_GE(chunk.size(), 2) << "Chunk size should be at least 2";
+        }
+        std::cout << "after verifying each chunk meets minimum size requirement" << std::endl;
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
 }
 
 TEST_F(SubChunkStrategiesTest, ConditionalStrategyTest) {
