@@ -161,9 +161,25 @@ class DTWChunking {
 private:
     size_t window_size_;
     double dtw_threshold_;
+    std::string distance_metric_;
 
-    double compute_dtw_distance_1d(const std::vector<double>& seq1,
-                                   const std::vector<double>& seq2) const {
+    double calculate_distance(double a, double b) const {
+        if (distance_metric_ == "manhattan") {
+            return std::abs(a - b);
+        } else if (distance_metric_ == "cosine") {
+            double dot = a * b;
+            double norm_a = std::abs(a);
+            double norm_b = std::abs(b);
+            if (norm_a == 0 || norm_b == 0) return 0.0;
+            return 1.0 - (dot / (norm_a * norm_b));
+        } else {
+            double diff = a - b;
+            return diff * diff;
+        }
+    }
+
+    double compute_dtw_core(const std::vector<double>& seq1,
+                            const std::vector<double>& seq2) const {
         const size_t n = seq1.size();
         const size_t m = seq2.size();
         std::vector<std::vector<double>> dp(
@@ -174,7 +190,7 @@ private:
         for (size_t i = 1; i <= n; ++i) {
             for (size_t j = std::max(1ul, i - window_size_); j <= std::min(m, i + window_size_);
                  ++j) {
-                double cost = std::abs(seq1[i - 1] - seq2[j - 1]);
+                double cost = calculate_distance(seq1[i - 1], seq2[j - 1]);
                 dp[i][j] = cost + std::min({
                                       dp[i - 1][j],    // insertion
                                       dp[i][j - 1],    // deletion
@@ -224,30 +240,6 @@ private:
         }
     }
 
-    double compute_dtw_core(const std::vector<double>& seq1,
-                            const std::vector<double>& seq2) const {
-        const size_t n = seq1.size();
-        const size_t m = seq2.size();
-        std::vector<std::vector<double>> dp(
-            n + 1, std::vector<double>(m + 1, std::numeric_limits<double>::infinity()));
-
-        dp[0][0] = 0.0;
-
-        for (size_t i = 1; i <= n; ++i) {
-            for (size_t j = std::max(1ul, i - window_size_); j <= std::min(m, i + window_size_);
-                 ++j) {
-                double cost = std::abs(seq1[i - 1] - seq2[j - 1]);
-                dp[i][j] = cost + std::min({
-                                      dp[i - 1][j],    // insertion
-                                      dp[i][j - 1],    // deletion
-                                      dp[i - 1][j - 1] // match
-                                  });
-            }
-        }
-
-        return dp[n][m];
-    }
-
     /**
      * @brief Compute DTW distance between sequences
      * @param seq1 First sequence
@@ -263,7 +255,7 @@ public:
      * @param dtw_threshold Threshold for chunk boundaries
      */
     DTWChunking(size_t window_size = 10, double dtw_threshold = 1.0)
-        : window_size_(window_size), dtw_threshold_(dtw_threshold) {}
+        : window_size_(window_size), dtw_threshold_(dtw_threshold), distance_metric_("euclidean") {}
 
     /**
      * @brief Chunk data based on DTW analysis
@@ -337,6 +329,25 @@ public:
      */
     void set_dtw_threshold(double threshold) {
         dtw_threshold_ = threshold;
+    }
+
+    /**
+     * @brief Get the distance metric
+     * @return Distance metric
+     */
+    std::string get_distance_metric() const {
+        return distance_metric_;
+    }
+
+    /**
+     * @brief Set the distance metric
+     * @param metric Distance metric
+     */
+    void set_distance_metric(const std::string& metric) {
+        if (metric != "euclidean" && metric != "manhattan" && metric != "cosine") {
+            throw std::invalid_argument("Invalid distance metric. Supported metrics: euclidean, manhattan, cosine");
+        }
+        distance_metric_ = metric;
     }
 };
 

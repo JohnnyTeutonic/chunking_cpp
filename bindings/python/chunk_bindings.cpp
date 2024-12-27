@@ -204,12 +204,14 @@ PYBIND11_MODULE(chunking_cpp, m) {
         .def("chunk", &sophisticated_chunking::MutualInformationChunking<double>::chunk);
 
     py::class_<sophisticated_chunking::DTWChunking<double>>(m, "DTWChunking")
-        .def(py::init<size_t, double>())
+        .def(py::init<size_t, double>(), py::arg("window_size") = 10, py::arg("threshold") = 1.0)
         .def("chunk", &sophisticated_chunking::DTWChunking<double>::chunk)
-        .def("set_window_size", &sophisticated_chunking::DTWChunking<double>::set_window_size)
         .def("get_window_size", &sophisticated_chunking::DTWChunking<double>::get_window_size)
+        .def("get_dtw_threshold", &sophisticated_chunking::DTWChunking<double>::get_dtw_threshold)
+        .def("set_window_size", &sophisticated_chunking::DTWChunking<double>::set_window_size)
         .def("set_dtw_threshold", &sophisticated_chunking::DTWChunking<double>::set_dtw_threshold)
-        .def("get_dtw_threshold", &sophisticated_chunking::DTWChunking<double>::get_dtw_threshold);
+        .def("get_distance_metric", &sophisticated_chunking::DTWChunking<double>::get_distance_metric)
+        .def("set_distance_metric", &sophisticated_chunking::DTWChunking<double>::set_distance_metric);
 
     // Chunk Metrics
     py::class_<chunk_metrics::ChunkQualityAnalyzer<double>>(m, "ChunkQualityAnalyzer")
