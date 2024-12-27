@@ -317,16 +317,17 @@ def test_3d_chunk_advanced():
 def test_chunk_benchmark_detailed():
     """Test detailed benchmark functionality"""
     data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-    benchmark = ChunkBenchmark()
+    benchmark = ChunkBenchmark(data)  # Use default num_iterations=100
     
     # Test different chunk sizes
     sizes = [1, 2, 3]
     for size in sizes:
-        metrics = benchmark.benchmark_chunking(data, size)
-        assert isinstance(metrics, dict)
-        assert 'time' in metrics
-        assert 'memory' in metrics
-        assert metrics['time'] >= 0
+        metrics = benchmark.benchmark_chunking()
+        assert isinstance(metrics, list)
+        for result in metrics:
+            assert result.execution_time_ms >= 0
+            assert result.memory_usage_bytes > 0
+            assert result.num_chunks > 0
 
 def test_neural_chunking_configuration():
     """Test neural chunking configuration options"""
