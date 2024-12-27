@@ -180,7 +180,20 @@ PYBIND11_MODULE(chunking_cpp, m) {
         .def("get_window_size", &neural_chunking::NeuralChunking<double>::get_window_size)
         .def("get_threshold", &neural_chunking::NeuralChunking<double>::get_threshold)
         .def("set_window_size", &neural_chunking::NeuralChunking<double>::set_window_size)
-        .def("set_threshold", &neural_chunking::NeuralChunking<double>::set_threshold);
+        .def("set_threshold", &neural_chunking::NeuralChunking<double>::set_threshold)
+        .def("set_learning_rate", &neural_chunking::NeuralChunking<double>::set_learning_rate)
+        .def("get_learning_rate", &neural_chunking::NeuralChunking<double>::get_learning_rate)
+        .def("set_batch_size", &neural_chunking::NeuralChunking<double>::set_batch_size)
+        .def("get_batch_size", &neural_chunking::NeuralChunking<double>::get_batch_size)
+        .def("set_activation", &neural_chunking::NeuralChunking<double>::set_activation)
+        .def("get_activation", &neural_chunking::NeuralChunking<double>::get_activation)
+        .def("set_epochs", &neural_chunking::NeuralChunking<double>::set_epochs)
+        .def("get_epochs", &neural_chunking::NeuralChunking<double>::get_epochs)
+        .def("train", [](neural_chunking::NeuralChunking<double>& self,
+                        const std::vector<double>& data) {
+            auto losses = self.train(data);
+            return py::array_t<double>(losses.size(), losses.data());
+        });
 
     // GPU Chunking
 #ifdef HAVE_CUDA
