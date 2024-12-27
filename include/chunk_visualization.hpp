@@ -171,20 +171,56 @@ public:
     }
 
     void export_to_graphviz(const std::string& filename = "chunks.dot") {
-        std::string actual_filename = output_dir + "/" + filename;
+        // Ensure the output directory exists
+        std::filesystem::create_directories(output_dir);
+        
+        // Create full path
+        std::string actual_filename;
+        if (filename.find('/') != std::string::npos) {
+            // If filename contains a path, use it as is
+            actual_filename = filename;
+        } else {
+            // Otherwise, append to output_dir
+            actual_filename = output_dir + "/" + filename;
+        }
+        
+        // Create the file
         std::ofstream file(actual_filename);
-        if (!file) {
-            throw chunk_processing::VisualizationError("Failed to create GraphViz file");
+        if (!file.is_open()) {
+            throw chunk_processing::VisualizationError(
+                "Failed to create GraphViz file: " + actual_filename);
         }
 
-        file << "digraph chunks {\n";
-        for (size_t i = 0; i < data.size(); ++i) {
-            file << "  chunk" << i << " [label=\"Value: " << format_value(data[i]) << "\"];\n";
-            if (i > 0) {
-                file << "  chunk" << (i - 1) << " -> chunk" << i << ";\n";
+        try {
+            file << "digraph chunks {\n";
+            for (size_t i = 0; i < data.size(); ++i) {
+                file << "  chunk" << i << " [label=\"Value: " << format_value(data[i]) << "\"];\n";
+                if (i > 0) {
+                    file << "  chunk" << (i - 1) << " -> chunk" << i << ";\n";
+                }
             }
+            file << "}\n";
+            
+            // Ensure everything is written
+            file.flush();
+            
+            if (file.fail()) {
+                throw chunk_processing::VisualizationError(
+                    "Failed to write to GraphViz file: " + actual_filename);
+            }
+        } catch (const std::exception& e) {
+            throw chunk_processing::VisualizationError(
+                std::string("Error writing GraphViz file: ") + e.what());
         }
-        file << "}\n";
+        
+        file.close();
+        
+        // Verify the file was created and has content
+        if (!std::filesystem::exists(actual_filename) || 
+            std::filesystem::file_size(actual_filename) == 0) {
+            throw chunk_processing::VisualizationError(
+                "GraphViz file was not created properly: " + actual_filename);
+        }
     }
 
     void visualize_boundaries() {
