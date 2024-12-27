@@ -192,11 +192,21 @@ PYBIND11_MODULE(chunking_cpp, m) {
     // Sophisticated Chunking
     py::class_<sophisticated_chunking::WaveletChunking<double>>(m, "WaveletChunking")
         .def(py::init<size_t, double>())
-        .def("chunk", &sophisticated_chunking::WaveletChunking<double>::chunk)
+        .def("chunk", [](sophisticated_chunking::WaveletChunking<double>& self,
+                        const std::vector<double>& data) {
+            auto chunks = self.chunk(data);
+            py::list result;
+            for (const auto& chunk : chunks) {
+                result.append(py::array_t<double>(chunk.size(), chunk.data()));
+            }
+            return result;
+        })
         .def("set_window_size", &sophisticated_chunking::WaveletChunking<double>::set_window_size)
         .def("get_window_size", &sophisticated_chunking::WaveletChunking<double>::get_window_size)
         .def("set_threshold", &sophisticated_chunking::WaveletChunking<double>::set_threshold)
-        .def("get_threshold", &sophisticated_chunking::WaveletChunking<double>::get_threshold);
+        .def("get_threshold", &sophisticated_chunking::WaveletChunking<double>::get_threshold)
+        .def("get_wavelet_type", &sophisticated_chunking::WaveletChunking<double>::get_wavelet_type)
+        .def("set_wavelet_type", &sophisticated_chunking::WaveletChunking<double>::set_wavelet_type);
 
     py::class_<sophisticated_chunking::MutualInformationChunking<double>>(
         m, "MutualInformationChunking")
