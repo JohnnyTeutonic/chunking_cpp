@@ -77,111 +77,129 @@ template <typename T>
 class CHUNK_EXPORT ChunkQualityAnalyzer {
 private:
     mutable std::mutex mutex_;
+    mutable std::recursive_mutex compute_mutex_;
     mutable std::atomic<bool> is_processing_{false};
+    mutable std::atomic<bool> is_computing_quality_{false};
+    mutable std::atomic<size_t> computation_depth_{0};
 
-    // Cache for intermediate results
-    mutable struct Cache {
-        std::vector<double> chunk_means;
-        double global_mean{0.0};
-        bool is_valid{false};
-    } cache_;
+    // Add a simple reset flag instead of complex cache
+    mutable std::atomic<bool> needs_reset_{false};
 
-    void validate_chunks(const std::vector<std::vector<T>>& chunks) const {
-        if (!detail::is_valid_chunks(chunks)) {
-            throw std::invalid_argument("Invalid chunks: empty or contains invalid values");
+    struct ComputationGuard {
+        std::atomic<size_t>& depth;
+        explicit ComputationGuard(std::atomic<size_t>& d) : depth(d) { ++depth; }
+        ~ComputationGuard() { --depth; }
+    };
+
+    template<typename Func>
+    auto compute_safely(Func&& func) const -> decltype(func()) {
+        if (computation_depth_ > 10) {
+            throw std::runtime_error("Computation depth exceeded");
         }
-    }
-
-    void update_cache(const std::vector<std::vector<T>>& chunks) const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!cache_.is_valid) {
-            cache_.chunk_means.clear();
-            cache_.chunk_means.reserve(chunks.size());
-
-            double total_sum = 0.0;
-            size_t total_count = 0;
-
-            for (const auto& chunk : chunks) {
-                double mean = detail::safe_mean(chunk);
-                cache_.chunk_means.push_back(mean);
-                total_sum += mean * chunk.size();
-                total_count += chunk.size();
-            }
-
-            cache_.global_mean = total_count > 0 ? total_sum / total_count : 0.0;
-            cache_.is_valid = true;
-        }
+        ComputationGuard guard(computation_depth_);
+        std::lock_guard<std::recursive_mutex> lock(compute_mutex_);
+        return func();
     }
 
     double compute_chunk_cohesion(const std::vector<T>& chunk, double chunk_mean) const {
-        if (chunk.empty())
-            return 0.0;
+        return compute_safely([&]() {
+            if (chunk.empty()) return 0.0;
 
-        double sum_distances = 0.0;
-        size_t valid_pairs = 0;
+            std::vector<double> distances;
+            distances.reserve((chunk.size() * (chunk.size() - 1)) / 2);
 
-        for (size_t i = 0; i < chunk.size(); ++i) {
-            for (size_t j = i + 1; j < chunk.size(); ++j) {
-                double dist = detail::safe_distance(chunk[i], chunk[j]);
-                if (dist < std::numeric_limits<double>::max()) {
-                    sum_distances += dist;
-                    ++valid_pairs;
+            for (size_t i = 0; i < chunk.size(); ++i) {
+                for (size_t j = i + 1; j < chunk.size(); ++j) {
+                    try {
+                        double dist = detail::safe_distance(chunk[i], chunk[j]);
+                        if (dist < std::numeric_limits<double>::max()) {
+                            distances.push_back(dist);
+                        }
+                    } catch (...) {
+                        continue;
+                    }
                 }
             }
-        }
 
-        return valid_pairs > 0 ? sum_distances / valid_pairs : 0.0;
+            if (distances.empty()) return 0.0;
+
+            std::sort(distances.begin(), distances.end());
+            if (distances.size() % 2 == 0) {
+                return (distances[distances.size()/2 - 1] + distances[distances.size()/2]) / 2.0;
+            }
+            return distances[distances.size()/2];
+        });
     }
 
 public:
     ChunkQualityAnalyzer() = default;
 
+    /**
+     * @brief Reset internal state
+     */
     void clear_cache() {
         std::lock_guard<std::mutex> lock(mutex_);
-        cache_.is_valid = false;
-        cache_.chunk_means.clear();
+        needs_reset_ = true;
+        computation_depth_ = 0;
+        is_processing_ = false;
+        is_computing_quality_ = false;
     }
 
     double compute_cohesion(const std::vector<std::vector<T>>& chunks) const {
-        // Prevent reentrant calls
-        bool expected = false;
-        if (!is_processing_.compare_exchange_strong(expected, true)) {
-            throw std::runtime_error("Analyzer is already processing");
-        }
+        return compute_safely([&]() {
+            try {
+                std::unique_lock<std::mutex> lock(mutex_);
 
-        struct Guard {
-            std::atomic<bool>& flag;
-            Guard(std::atomic<bool>& f) : flag(f) {}
-            ~Guard() {
-                flag = false;
-            }
-        } guard(const_cast<std::atomic<bool>&>(is_processing_));
+                if (chunks.empty()) {
+                    throw std::invalid_argument("Empty chunks vector");
+                }
 
-        try {
-            validate_chunks(chunks);
-            update_cache(chunks);
-
-            double total_cohesion = 0.0;
-            size_t valid_chunks = 0;
-
-            for (size_t i = 0; i < chunks.size(); ++i) {
-                if (!chunks[i].empty()) {
-                    double chunk_cohesion =
-                        compute_chunk_cohesion(chunks[i], cache_.chunk_means[i]);
-                    if (std::isfinite(chunk_cohesion)) {
-                        total_cohesion += chunk_cohesion;
-                        ++valid_chunks;
+                for (const auto& chunk : chunks) {
+                    if (!detail::is_valid_chunk(chunk)) {
+                        throw std::invalid_argument("Invalid chunk detected");
                     }
                 }
+
+                std::vector<double> means;
+                means.reserve(chunks.size());
+                for (const auto& chunk : chunks) {
+                    means.push_back(detail::safe_mean(chunk));
+                }
+
+                double total_cohesion = 0.0;
+                size_t valid_chunks = 0;
+
+                for (size_t i = 0; i < chunks.size(); ++i) {
+                    try {
+                        if (!chunks[i].empty()) {
+                            double chunk_cohesion = compute_chunk_cohesion(chunks[i], means[i]);
+                            if (std::isfinite(chunk_cohesion)) {
+                                total_cohesion += chunk_cohesion;
+                                ++valid_chunks;
+                            }
+                        }
+                    } catch (...) {
+                        continue;
+                    }
+                }
+
+                if (valid_chunks == 0) {
+                    throw std::runtime_error("No valid chunks for cohesion calculation");
+                }
+
+                double result = total_cohesion / valid_chunks;
+                if (!std::isfinite(result)) {
+                    throw std::runtime_error("Invalid cohesion result computed");
+                }
+
+                return result;
+
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Cohesion computation failed: ") + e.what());
+            } catch (...) {
+                throw std::runtime_error("Unknown error in cohesion computation");
             }
-
-            return valid_chunks > 0 ? total_cohesion / valid_chunks : 0.0;
-
-        } catch (const std::exception& e) {
-            throw std::runtime_error(std::string("Error computing cohesion: ") + e.what());
-        } catch (...) {
-            throw std::runtime_error("Unknown error computing cohesion");
-        }
+        });
     }
 
     /**
@@ -190,27 +208,39 @@ public:
      * @return Separation score between 0 and 1
      * @throws std::invalid_argument if chunks is empty or contains single chunk
      */
-    double compute_separation(const std::vector<std::vector<T>>& chunks) {
+    double compute_separation(const std::vector<std::vector<T>>& chunks) const {
+        std::unique_lock<std::mutex> lock(mutex_);
+        
         if (chunks.size() < 2) {
             throw std::invalid_argument("Need at least two chunks for separation");
         }
 
-        double total_separation = 0.0;
-        int comparisons = 0;
+        try {
+            double total_separation = 0.0;
+            size_t comparisons = 0;
 
-        for (size_t i = 0; i < chunks.size(); ++i) {
-            for (size_t j = i + 1; j < chunks.size(); ++j) {
-                T mean_i = calculate_mean(chunks[i]);
-                T mean_j = calculate_mean(chunks[j]);
+            for (size_t i = 0; i < chunks.size(); ++i) {
+                for (size_t j = i + 1; j < chunks.size(); ++j) {
+                    if (chunks[i].empty() || chunks[j].empty()) {
+                        continue;
+                    }
 
-                // Calculate distance between means
-                double separation = std::abs(mean_i - mean_j);
-                total_separation += separation;
-                ++comparisons;
+                    double mean_i = detail::safe_mean(chunks[i]);
+                    double mean_j = detail::safe_mean(chunks[j]);
+
+                    if (std::isfinite(mean_i) && std::isfinite(mean_j)) {
+                        double separation = std::abs(mean_i - mean_j);
+                        total_separation += separation;
+                        ++comparisons;
+                    }
+                }
             }
-        }
 
-        return total_separation / comparisons;
+            return comparisons > 0 ? total_separation / comparisons : 0.0;
+
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error computing separation: ") + e.what());
+        }
     }
 
     /**
@@ -269,15 +299,58 @@ public:
      * @return Quality score between 0 and 1
      * @throws std::invalid_argument if chunks is empty
      */
-    double compute_quality_score(const std::vector<std::vector<T>>& chunks) {
-        if (chunks.empty()) {
-            throw std::invalid_argument("Empty chunks vector");
+    double compute_quality_score(const std::vector<std::vector<T>>& chunks) const {
+        // Prevent reentrant calls and ensure thread safety
+        bool expected = false;
+        if (!is_computing_quality_.compare_exchange_strong(expected, true)) {
+            throw std::runtime_error("Quality score computation already in progress");
         }
 
-        double cohesion = compute_cohesion(chunks);
-        double separation = chunks.size() > 1 ? compute_separation(chunks) : 1.0;
+        struct QualityGuard {
+            std::atomic<bool>& flag;
+            QualityGuard(std::atomic<bool>& f) : flag(f) {}
+            ~QualityGuard() { flag = false; }
+        } guard(const_cast<std::atomic<bool>&>(is_computing_quality_));
 
-        return (cohesion + separation) / 2.0;
+        try {
+            std::unique_lock<std::mutex> lock(mutex_);
+            
+            if (chunks.empty()) {
+                throw std::invalid_argument("Empty chunks vector");
+            }
+
+            // Store cohesion result safely
+            double cohesion = 0.0;
+            {
+                // Compute cohesion with its own lock scope
+                cohesion = compute_cohesion(chunks);
+            }
+
+            // Store separation result safely
+            double separation = 0.0;
+            if (chunks.size() > 1) {
+                // Compute separation with its own lock scope
+                try {
+                    separation = compute_separation(chunks);
+                } catch (const std::exception&) {
+                    separation = 1.0;  // Fallback for single chunk
+                }
+            } else {
+                separation = 1.0;  // Default for single chunk
+            }
+
+            // Validate results before computation
+            if (!std::isfinite(cohesion) || !std::isfinite(separation)) {
+                throw std::runtime_error("Invalid metric values computed");
+            }
+
+            return (cohesion + separation) / 2.0;
+
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error computing quality score: ") + e.what());
+        } catch (...) {
+            throw std::runtime_error("Unknown error in quality score computation");
+        }
     }
 
     /**
