@@ -223,6 +223,7 @@ make pytest-coverage
 - `make run-sophisticated`: Run the sophisticated chunking demo
 - `make test`: Run all tests
 - `make test-<name>`: Run specific test suite
+- `make visualization`: Run the visualization demo
 - `make docs`: Generate documentation
 - `make docs-serve`: Serve documentation locally
 - `make docs-clean`: Clean documentation build artifacts

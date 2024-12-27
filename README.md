@@ -448,7 +448,7 @@ For detailed examples of the chunk visualization, see `src/chunk_visualization_d
 To run the chunk visualization demo, use:
 
 ```bash
-make run-visualization
+make visualization
 ```
 
 To use the visualisation as a standalone tool with gnuplot run:
