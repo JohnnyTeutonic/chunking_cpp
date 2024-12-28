@@ -19,47 +19,49 @@
 namespace chunk_metrics {
 
 namespace detail {
-    template<typename T>
-    bool is_valid_chunk(const std::vector<T>& chunk) {
-        return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(), 
-            [](const T& val) { return std::isfinite(static_cast<double>(val)); });
-    }
+template <typename T>
+bool is_valid_chunk(const std::vector<T>& chunk) {
+    return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(), [](const T& val) {
+        return std::isfinite(static_cast<double>(val));
+    });
+}
 
-    template<typename T>
-    double safe_mean(const std::vector<T>& data) {
-        if (data.empty()) return 0.0;
-        double sum = 0.0;
-        size_t count = 0;
-        
-        for (const auto& val : data) {
-            double d_val = static_cast<double>(val);
-            if (std::isfinite(d_val)) {
-                sum += d_val;
-                ++count;
-            }
-        }
-        return count > 0 ? sum / count : 0.0;
-    }
+template <typename T>
+double safe_mean(const std::vector<T>& data) {
+    if (data.empty())
+        return 0.0;
+    double sum = 0.0;
+    size_t count = 0;
 
-    template<typename T>
-    double safe_distance(const T& a, const T& b) {
-        try {
-            double d_a = static_cast<double>(a);
-            double d_b = static_cast<double>(b);
-            return std::isfinite(d_a) && std::isfinite(d_b) ? 
-                   std::abs(d_a - d_b) : 
-                   std::numeric_limits<double>::max();
-        } catch (...) {
-            return std::numeric_limits<double>::max();
+    for (const auto& val : data) {
+        double d_val = static_cast<double>(val);
+        if (std::isfinite(d_val)) {
+            sum += d_val;
+            ++count;
         }
+    }
+    return count > 0 ? sum / count : 0.0;
+}
+
+template <typename T>
+double safe_distance(const T& a, const T& b) {
+    try {
+        double d_a = static_cast<double>(a);
+        double d_b = static_cast<double>(b);
+        return std::isfinite(d_a) && std::isfinite(d_b) ? std::abs(d_a - d_b)
+                                                        : std::numeric_limits<double>::max();
+    } catch (...) {
+        return std::numeric_limits<double>::max();
     }
 }
+} // namespace detail
 
 template <typename T>
 class CHUNK_EXPORT ChunkQualityAnalyzer {
 private:
     double compute_chunk_cohesion(const std::vector<T>& chunk) const {
-        if (chunk.size() < 2) return 0.0;
+        if (chunk.size() < 2)
+            return 0.0;
 
         std::vector<double> distances;
         distances.reserve((chunk.size() * (chunk.size() - 1)) / 2);
@@ -73,9 +75,10 @@ private:
             }
         }
 
-        if (distances.empty()) return 0.0;
+        if (distances.empty())
+            return 0.0;
         std::sort(distances.begin(), distances.end());
-        return distances[distances.size() / 2];  // Return median distance
+        return distances[distances.size() / 2]; // Return median distance
     }
 
 public:
@@ -115,9 +118,8 @@ public:
     }
 
     bool compare_cohesion(const std::vector<std::vector<T>>& well_separated,
-                         const std::vector<std::vector<T>>& mixed,
-                         double& high_result,
-                         double& mixed_result) const {
+                          const std::vector<std::vector<T>>& mixed, double& high_result,
+                          double& mixed_result) const {
         try {
             if (well_separated.empty() || mixed.empty()) {
                 return false;
@@ -126,8 +128,7 @@ public:
             high_result = compute_cohesion(well_separated);
             mixed_result = compute_cohesion(mixed);
 
-            return std::isfinite(high_result) && 
-                   std::isfinite(mixed_result) && 
+            return std::isfinite(high_result) && std::isfinite(mixed_result) &&
                    high_result > mixed_result;
         } catch (...) {
             return false;
@@ -144,7 +145,8 @@ public:
 
         for (size_t i = 0; i < chunks.size(); ++i) {
             for (size_t j = i + 1; j < chunks.size(); ++j) {
-                if (chunks[i].empty() || chunks[j].empty()) continue;
+                if (chunks[i].empty() || chunks[j].empty())
+                    continue;
 
                 double mean_i = detail::safe_mean(chunks[i]);
                 double mean_j = detail::safe_mean(chunks[j]);
@@ -206,7 +208,8 @@ public:
                     }
                 }
 
-                if (std::isfinite(a) && std::isfinite(b) && b < std::numeric_limits<double>::max()) {
+                if (std::isfinite(a) && std::isfinite(b) &&
+                    b < std::numeric_limits<double>::max()) {
                     double max_ab = std::max(a, b);
                     if (max_ab > 0) {
                         total_score += (b - a) / max_ab;
@@ -242,7 +245,8 @@ public:
         }
     }
 
-    std::map<std::string, double> compute_size_metrics(const std::vector<std::vector<T>>& chunks) const {
+    std::map<std::string, double>
+    compute_size_metrics(const std::vector<std::vector<T>>& chunks) const {
         if (chunks.empty()) {
             throw std::invalid_argument("Empty chunks vector");
         }

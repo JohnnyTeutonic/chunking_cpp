@@ -106,22 +106,18 @@ TEST_F(ChunkMetricsTest, CohesionCalculation) {
     try {
         double high_cohesion = 0.0;
         double mixed_cohesion = 0.0;
-        
-        bool success = analyzer->compare_cohesion(
-            well_separated_chunks,
-            mixed_cohesion_chunks,
-            high_cohesion,
-            mixed_cohesion
-        );
+
+        bool success = analyzer->compare_cohesion(well_separated_chunks, mixed_cohesion_chunks,
+                                                  high_cohesion, mixed_cohesion);
 
         ASSERT_TRUE(success) << "Cohesion comparison failed";
         ASSERT_TRUE(std::isfinite(high_cohesion)) << "High cohesion is not finite";
         ASSERT_TRUE(std::isfinite(mixed_cohesion)) << "Mixed cohesion is not finite";
-        
-        EXPECT_GT(high_cohesion, mixed_cohesion) 
-            << "High cohesion (" << high_cohesion 
-            << ") should be greater than mixed cohesion (" << mixed_cohesion << ")";
-            
+
+        EXPECT_GT(high_cohesion, mixed_cohesion)
+            << "High cohesion (" << high_cohesion << ") should be greater than mixed cohesion ("
+            << mixed_cohesion << ")";
+
     } catch (const std::exception& e) {
         FAIL() << "Unexpected exception: " << e.what();
     }

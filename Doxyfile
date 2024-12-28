@@ -1,7 +1,7 @@
 # Project settings
 PROJECT_NAME           = "Advanced Chunk Processing Library"
 PROJECT_NUMBER        = "0.2.0"
-PROJECT_BRIEF         = "A comprehensive C++ library for advanced data chunking strategies and processing operations"
+PROJECT_BRIEF         = "A C++ library for data chunking with advanced data structures"
 OUTPUT_DIRECTORY      = docs
 CREATE_SUBDIRS        = NO
 ALLOW_UNICODE_NAMES   = NO
@@ -43,14 +43,20 @@ INPUT                = include/ \
                         scripts/ \
                         bindings/ \
                         README.md \
-                        BUILDING.md
+                        BUILDING.md \
+                        include/slidingchunkwindow.hpp \
+                        include/sparsechunkmatrix.hpp \
+                        include/chunkcache.hpp \
+                        include/advanced_structures.hpp
 USE_MDFILE_AS_MAINPAGE = README.md
 FILE_PATTERNS        = *.cpp \
                         *.hpp \
                         *.h \
                         *.md
 RECURSIVE            = YES
-EXCLUDE_PATTERNS     = */build/*
+EXCLUDE_PATTERNS     = */build/* \
+                        */tests/* \
+                        */third_party/*
 
 # Additional paths
 STRIP_FROM_PATH      = include
@@ -199,7 +205,10 @@ ENABLE_PREPROCESSING = YES
 MACRO_EXPANSION      = YES
 EXPAND_ONLY_PREDEF   = NO
 SKIP_FUNCTION_MACROS = NO
-PREDEFINED           = CHUNK_EXPORT=
+PREDEFINED           = CHUNK_EXPORT= \
+                        DOXYGEN_SHOULD_SKIP_THIS \
+                        "CHUNK_EXPORT=" \
+                        "ADVANCED_STRUCTURES_EXPORT="
 
 # File patterns
 FILE_PATTERNS         = *.cpp \
@@ -207,3 +216,15 @@ FILE_PATTERNS         = *.cpp \
                        *.h \
                        *.inl \
                        *.tpp
+
+# Add new example path
+EXAMPLE_PATH          += examples/advanced_structures
+
+# Add new tag
+ALIASES               += advanced_feature="\xrefitem advanced_features \"Advanced Feature\" \"Advanced Features\""
+
+# Add new image path for advanced structures documentation
+IMAGE_PATH            += docs/images/advanced_structures
+
+# Update the layout file to include advanced structures section
+LAYOUT_FILE           = docs/DoxygenLayout.xml

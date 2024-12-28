@@ -7,16 +7,10 @@ int main(int argc, char* argv[]) {
     try {
         // Create test data
         std::vector<std::vector<double>> well_separated = {
-            {1.0, 1.1, 1.2},
-            {5.0, 5.1, 5.2},
-            {10.0, 10.1, 10.2}
-        };
+            {1.0, 1.1, 1.2}, {5.0, 5.1, 5.2}, {10.0, 10.1, 10.2}};
 
         std::vector<std::vector<double>> mixed_chunks = {
-            {1.0, 1.1, 5.0},
-            {2.0, 2.1, 8.0},
-            {3.0, 3.1, 9.0}
-        };
+            {1.0, 1.1, 5.0}, {2.0, 2.1, 8.0}, {3.0, 3.1, 9.0}};
 
         // Create analyzer
         chunk_metrics::ChunkQualityAnalyzer<double> analyzer;
@@ -31,7 +25,7 @@ int main(int argc, char* argv[]) {
             // Cohesion metrics
             double high_cohesion = analyzer.compute_cohesion(well_separated);
             double mixed_cohesion = analyzer.compute_cohesion(mixed_chunks);
-            
+
             std::cout << "Cohesion Metrics:" << std::endl;
             std::cout << "  Well-separated chunks: " << high_cohesion << std::endl;
             std::cout << "  Mixed cohesion chunks: " << mixed_cohesion << std::endl;
@@ -47,7 +41,7 @@ int main(int argc, char* argv[]) {
             // Quality scores
             double high_quality = analyzer.compute_quality_score(well_separated);
             double mixed_quality = analyzer.compute_quality_score(mixed_chunks);
-            
+
             std::cout << "\nQuality Scores:" << std::endl;
             std::cout << "  Well-separated chunks: " << high_quality << std::endl;
             std::cout << "  Mixed cohesion chunks: " << mixed_quality << std::endl;

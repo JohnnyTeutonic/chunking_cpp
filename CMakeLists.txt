@@ -544,3 +544,41 @@ target_sources(chunk_processor
         ${CMAKE_CURRENT_SOURCE_DIR}/include/chunk_strategies.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/include/chunk_visualization.hpp
 )
+
+# Add new source files to existing sources
+list(APPEND CHUNK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/slidingchunkwindow.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/sparsechunkmatrix.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/chunkcache.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/advanced_structures.hpp
+)
+
+# Add new test file to existing test sources
+list(APPEND TEST_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_advanced_structures.cpp
+)
+
+# Update existing targets with new sources
+target_sources(chunk_processor
+    PRIVATE
+        ${CHUNK_SOURCES}
+)
+
+# Update test executable with new sources
+target_sources(run_tests
+    PRIVATE
+        ${TEST_SOURCES}
+)
+
+# Ensure the new headers are included in the build
+target_include_directories(chunk_processor
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Add Boost dependency for advanced structures
+find_package(Boost REQUIRED)
+target_link_libraries(chunk_processor
+    PUBLIC
+        Boost::boost
+)
