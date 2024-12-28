@@ -33,17 +33,13 @@ protected:
             }
 
             // Initialize test data with bounds checking
-            well_separated_chunks = {
-                std::vector<double>{1.0, 1.1, 1.2},
-                std::vector<double>{5.0, 5.1, 5.2},
-                std::vector<double>{10.0, 10.1, 10.2}
-            };
+            well_separated_chunks = {std::vector<double>{1.0, 1.1, 1.2},
+                                     std::vector<double>{5.0, 5.1, 5.2},
+                                     std::vector<double>{10.0, 10.1, 10.2}};
 
-            mixed_cohesion_chunks = {
-                std::vector<double>{1.0, 1.1, 5.0},
-                std::vector<double>{2.0, 2.1, 8.0},
-                std::vector<double>{3.0, 3.1, 9.0}
-            };
+            mixed_cohesion_chunks = {std::vector<double>{1.0, 1.1, 5.0},
+                                     std::vector<double>{2.0, 2.1, 8.0},
+                                     std::vector<double>{3.0, 3.1, 9.0}};
 
             // Validate test data
             for (const auto& chunk : well_separated_chunks) {
@@ -65,17 +61,17 @@ protected:
     void TearDown() override {
         try {
             std::lock_guard<std::mutex> lock(test_mutex_);
-            
+
             if (analyzer) {
                 // Ensure no computations are running
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 analyzer.reset();
             }
-            
+
             well_separated_chunks.clear();
             mixed_cohesion_chunks.clear();
             empty_chunks.clear();
-            
+
         } catch (...) {
             // Ensure base teardown still happens
         }
@@ -84,16 +80,18 @@ protected:
     }
 
     // Helper to safely run computations with explicit return type
-    template<typename Func>
+    template <typename Func>
     auto run_safely(Func&& func) -> typename std::invoke_result<Func>::type {
         if (test_running_.exchange(true)) {
             throw std::runtime_error("Test already running");
         }
-        
+
         struct TestGuard {
             std::atomic<bool>& flag;
             TestGuard(std::atomic<bool>& f) : flag(f) {}
-            ~TestGuard() { flag = false; }
+            ~TestGuard() {
+                flag = false;
+            }
         } guard(test_running_);
 
         return func();
@@ -101,39 +99,34 @@ protected:
 };
 
 TEST_F(ChunkMetricsTest, CohesionCalculation) {
-    std::cout << "Starting CohesionCalculation test" << std::endl;
-    
     ASSERT_TRUE(analyzer != nullptr) << "Analyzer is null";
     ASSERT_FALSE(well_separated_chunks.empty()) << "Well separated chunks is empty";
     ASSERT_FALSE(mixed_cohesion_chunks.empty()) << "Mixed cohesion chunks is empty";
-    
+
     try {
-        // Run computation safely with explicit lambda return type
-        auto result = run_safely([this]() -> std::pair<double, double> {
-            double high_cohesion = 0.0;
-            double mixed_cohesion = 0.0;
-            
-            {
-                std::unique_lock<std::mutex> lock(test_mutex_);
-                bool success = analyzer->compare_cohesion(
-                    well_separated_chunks,
-                    mixed_cohesion_chunks,
-                    high_cohesion,
-                    mixed_cohesion
-                );
-                
-                if (!success || !std::isfinite(high_cohesion) || !std::isfinite(mixed_cohesion)) {
-                    throw std::runtime_error("Invalid cohesion computation results");
-                }
-                
-                return std::make_pair(high_cohesion, mixed_cohesion);
-            }
+        double high_cohesion = 0.0;
+        double mixed_cohesion = 0.0;
+        bool success = false;
+
+        // Try operation with timeout
+        auto future = std::async(std::launch::async, [&]() {
+            success = analyzer->compare_cohesion(well_separated_chunks, mixed_cohesion_chunks,
+                                                 high_cohesion, mixed_cohesion);
         });
-        
-        EXPECT_GT(result.first, result.second) 
-            << "High cohesion (" << result.first 
-            << ") should be greater than mixed cohesion (" << result.second << ")";
-            
+
+        // Wait for completion or timeout
+        if (future.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+            FAIL() << "Operation timed out";
+        }
+
+        ASSERT_TRUE(success) << "Cohesion comparison failed";
+        ASSERT_TRUE(std::isfinite(high_cohesion)) << "High cohesion is not finite";
+        ASSERT_TRUE(std::isfinite(mixed_cohesion)) << "Mixed cohesion is not finite";
+
+        EXPECT_GT(high_cohesion, mixed_cohesion)
+            << "High cohesion (" << high_cohesion << ") should be greater than mixed cohesion ("
+            << mixed_cohesion << ")";
+
     } catch (const std::exception& e) {
         FAIL() << "Unexpected exception: " << e.what();
     }
@@ -153,26 +146,27 @@ TEST_F(ChunkMetricsTest, SilhouetteScore) {
 
 TEST_F(ChunkMetricsTest, QualityScore) {
     ASSERT_TRUE(analyzer != nullptr);
-    
+
     try {
         auto result = run_safely([this]() -> std::pair<double, double> {
             std::unique_lock<std::mutex> lock(test_mutex_);
-            
+
             double high_quality = analyzer->compute_quality_score(well_separated_chunks);
             analyzer->clear_cache();
             double mixed_quality = analyzer->compute_quality_score(mixed_cohesion_chunks);
-            
+
             if (!std::isfinite(high_quality) || !std::isfinite(mixed_quality)) {
                 throw std::runtime_error("Invalid quality score results");
             }
-            
+
             return std::make_pair(high_quality, mixed_quality);
         });
 
-        EXPECT_GT(result.first, result.second) << "High quality should be greater than mixed quality";
+        EXPECT_GT(result.first, result.second)
+            << "High quality should be greater than mixed quality";
         EXPECT_GE(result.first, 0.0) << "Quality score should be non-negative";
         EXPECT_LE(result.first, 1.0) << "Quality score should not exceed 1.0";
-        
+
     } catch (const std::exception& e) {
         FAIL() << "Unexpected exception: " << e.what();
     }

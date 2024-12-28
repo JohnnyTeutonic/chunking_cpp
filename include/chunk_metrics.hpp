@@ -10,20 +10,20 @@
 #include "chunk_common.hpp"
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
-#include <future>        // For std::promise, std::future
+#include <condition_variable>
+#include <future> // For std::promise, std::future
 #include <limits>
 #include <map>
 #include <mutex>
 #include <numeric>
 #include <optional>
-#include <shared_mutex>  // For std::shared_mutex
+#include <shared_mutex> // For std::shared_mutex
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
-#include <chrono>
-#include <condition_variable>
 
 namespace chunk_metrics {
 
@@ -81,12 +81,85 @@ double safe_distance(const T& a, const T& b) {
 template <typename T>
 class CHUNK_EXPORT ChunkQualityAnalyzer {
 private:
-    // Thread safety
-    mutable std::mutex mutex_;
-    mutable std::condition_variable cv_;
+    // Thread safety members
+    mutable std::timed_mutex mutex_;
+    mutable std::atomic<bool> is_busy_{false};
     mutable std::atomic<bool> is_computing_{false};
-    mutable std::atomic<int> active_computations_{0};
     mutable std::atomic<bool> shutting_down_{false};
+    static constexpr auto OPERATION_TIMEOUT = std::chrono::seconds(5);
+
+    // Simple RAII lock with timeout
+    class ScopedLock {
+        std::timed_mutex& mutex_;
+        bool locked_{false};
+
+    public:
+        explicit ScopedLock(std::timed_mutex& m) : mutex_(m) {
+            locked_ = mutex_.try_lock_for(OPERATION_TIMEOUT);
+            if (!locked_) {
+                throw std::runtime_error("Operation timed out");
+            }
+        }
+        ~ScopedLock() {
+            if (locked_)
+                mutex_.unlock();
+        }
+        ScopedLock(const ScopedLock&) = delete;
+        ScopedLock& operator=(const ScopedLock&) = delete;
+    };
+
+    // RAII guard for computations
+    class ComputationGuard {
+        const ChunkQualityAnalyzer* analyzer_;
+        bool active_{false};
+
+    public:
+        explicit ComputationGuard(const ChunkQualityAnalyzer* a) : analyzer_(a) {
+            if (analyzer_->shutting_down_) {
+                throw std::runtime_error("Analyzer is shutting down");
+            }
+            if (!analyzer_->is_computing_.exchange(true)) {
+                active_ = true;
+            } else {
+                throw std::runtime_error("Computation already in progress");
+            }
+        }
+
+        ~ComputationGuard() {
+            if (active_) {
+                analyzer_->is_computing_ = false;
+            }
+        }
+
+        ComputationGuard(const ComputationGuard&) = delete;
+        ComputationGuard& operator=(const ComputationGuard&) = delete;
+    };
+
+    // Safe computation wrapper
+    template <typename Func>
+    auto compute_safely(Func&& func) const -> decltype(func()) {
+        if (shutting_down_) {
+            throw std::runtime_error("Analyzer is shutting down");
+        }
+
+        if (!is_busy_.exchange(true)) {
+            struct Guard {
+                std::atomic<bool>& flag;
+                Guard(std::atomic<bool>& f) : flag(f) {}
+                ~Guard() {
+                    flag = false;
+                }
+            } guard(is_busy_);
+
+            try {
+                ScopedLock lock(mutex_);
+                return func();
+            } catch (...) {
+                throw;
+            }
+        }
+        throw std::runtime_error("Analyzer is busy");
+    }
 
     // Memory safety
     struct SafeData {
@@ -101,7 +174,8 @@ private:
         }
 
         bool set(const std::vector<std::vector<T>>& new_data) const {
-            if (new_data.empty()) return false;
+            if (new_data.empty())
+                return false;
             std::lock_guard<std::mutex> lock(mutex);
             try {
                 const_cast<std::vector<std::vector<T>>&>(data) = new_data;
@@ -115,7 +189,8 @@ private:
 
         bool get(std::vector<std::vector<T>>& out_data) const {
             std::lock_guard<std::mutex> lock(mutex);
-            if (!is_valid) return false;
+            if (!is_valid)
+                return false;
             try {
                 out_data = data;
                 return true;
@@ -127,47 +202,17 @@ private:
 
     mutable SafeData input_data_;
 
-    // RAII guard for computations
-    class ComputationGuard {
-        ChunkQualityAnalyzer const* analyzer_;
-        std::unique_lock<std::mutex> lock_;
-        bool active_{false};
-
-    public:
-        explicit ComputationGuard(const ChunkQualityAnalyzer* a) 
-            : analyzer_(a)
-            , lock_(a->mutex_) 
-        {
-            if (analyzer_->shutting_down_) {
-                throw std::runtime_error("Analyzer is shutting down");
-            }
-            analyzer_->active_computations_++;
-            active_ = true;
-        }
-
-        ~ComputationGuard() {
-            if (active_) {
-                analyzer_->active_computations_--;
-                analyzer_->cv_.notify_one();
-            }
-        }
-
-        ComputationGuard(const ComputationGuard&) = delete;
-        ComputationGuard& operator=(const ComputationGuard&) = delete;
-    };
-
     // Safe computation of chunk cohesion
     double compute_chunk_cohesion(const std::vector<T>& chunk) const {
-        if (chunk.size() < 2) return 0.0;
+        if (chunk.size() < 2)
+            return 0.0;
 
         try {
             std::vector<double> distances;
             distances.reserve((chunk.size() * (chunk.size() - 1)) / 2);
 
-            for (size_t i = 0; i < chunk.size(); ++i) {
-                for (size_t j = i + 1; j < chunk.size(); ++j) {
-                    if (shutting_down_) throw std::runtime_error("Computation aborted");
-                    
+            for (size_t i = 0; i < chunk.size() && !shutting_down_; ++i) {
+                for (size_t j = i + 1; j < chunk.size() && !shutting_down_; ++j) {
                     double dist = detail::safe_distance(chunk[i], chunk[j]);
                     if (std::isfinite(dist) && dist < std::numeric_limits<double>::max()) {
                         distances.push_back(dist);
@@ -175,14 +220,13 @@ private:
                 }
             }
 
-            if (distances.empty()) return 0.0;
+            if (distances.empty() || shutting_down_)
+                return 0.0;
 
-            // Use median instead of mean for robustness
             std::sort(distances.begin(), distances.end());
             return distances[distances.size() / 2];
-
-        } catch (const std::exception& e) {
-            throw std::runtime_error(std::string("Chunk cohesion computation failed: ") + e.what());
+        } catch (...) {
+            return 0.0;
         }
     }
 
@@ -191,10 +235,8 @@ public:
 
     ~ChunkQualityAnalyzer() {
         shutting_down_ = true;
-        cv_.notify_all();
-        
-        // Wait for all computations to finish
-        while (active_computations_ > 0) {
+        // Wait for any ongoing computations to finish
+        while (is_busy_ || is_computing_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
@@ -218,8 +260,9 @@ public:
         }
 
         try {
-            ComputationGuard guard(this);
-            
+            ComputationGuard compute_guard(this);
+            ScopedLock lock(mutex_);
+
             if (!input_data_.set(chunks)) {
                 throw std::runtime_error("Failed to store input data");
             }
@@ -228,8 +271,9 @@ public:
             cohesion_values.reserve(chunks.size());
 
             for (const auto& chunk : chunks) {
-                if (shutting_down_) break;
-                
+                if (shutting_down_)
+                    break;
+
                 try {
                     double chunk_cohesion = compute_chunk_cohesion(chunk);
                     if (std::isfinite(chunk_cohesion)) {
@@ -260,8 +304,8 @@ public:
      * @throws std::invalid_argument if chunks is empty or contains single chunk
      */
     double compute_separation(const std::vector<std::vector<T>>& chunks) const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        
+        std::unique_lock<std::timed_mutex> lock(mutex_);
+
         if (chunks.size() < 2) {
             throw std::invalid_argument("Need at least two chunks for separation");
         }
@@ -360,12 +404,14 @@ public:
         struct QualityGuard {
             std::atomic<bool>& flag;
             QualityGuard(std::atomic<bool>& f) : flag(f) {}
-            ~QualityGuard() { flag = false; }
+            ~QualityGuard() {
+                flag = false;
+            }
         } guard(const_cast<std::atomic<bool>&>(is_computing_));
 
         try {
-            std::unique_lock<std::mutex> lock(mutex_);
-            
+            std::unique_lock<std::timed_mutex> lock(mutex_);
+
             if (chunks.empty()) {
                 throw std::invalid_argument("Empty chunks vector");
             }
@@ -384,10 +430,10 @@ public:
                 try {
                     separation = compute_separation(chunks);
                 } catch (const std::exception&) {
-                    separation = 1.0;  // Fallback for single chunk
+                    separation = 1.0; // Fallback for single chunk
                 }
             } else {
-                separation = 1.0;  // Default for single chunk
+                separation = 1.0; // Default for single chunk
             }
 
             // Validate results before computation
@@ -449,31 +495,30 @@ public:
 
     // Update test to use proper synchronization:
     bool compare_cohesion(const std::vector<std::vector<T>>& well_separated,
-                         const std::vector<std::vector<T>>& mixed,
-                         double& high_result, double& mixed_result) const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        
-        try {
+                          const std::vector<std::vector<T>>& mixed, double& high_result,
+                          double& mixed_result) const {
+        return compute_safely([&]() {
             if (well_separated.empty() || mixed.empty()) {
                 return false;
             }
 
-            high_result = compute_cohesion(well_separated);
-            mixed_result = compute_cohesion(mixed);
+            try {
+                high_result = compute_cohesion(well_separated);
+                mixed_result = compute_cohesion(mixed);
 
-            return std::isfinite(high_result) && 
-                   std::isfinite(mixed_result) && 
-                   high_result > mixed_result;
-        } catch (...) {
-            return false;
-        }
+                return std::isfinite(high_result) && std::isfinite(mixed_result) &&
+                       high_result > mixed_result;
+            } catch (...) {
+                return false;
+            }
+        });
     }
 
     // Add clear_cache method
     void clear_cache() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        ScopedLock lock(mutex_);
         is_computing_ = false;
-        active_computations_ = 0;
+        is_busy_ = false;
     }
 
 private:
