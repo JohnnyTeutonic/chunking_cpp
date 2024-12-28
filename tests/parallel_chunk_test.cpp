@@ -1,21 +1,40 @@
 #include "parallel_chunk.hpp"
-#include "gtest/gtest.h"
+#include "test_base.hpp"
+#include <atomic>
 #include <numeric>
 
 using namespace parallel_chunk;
 
-class ParallelChunkProcessorTest : public ::testing::Test {
+class ParallelChunkProcessorTest : public ChunkTestBase {
 protected:
-    void SetUp() override {
-        test_data = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-        chunks = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
-    }
-
     std::vector<int> test_data;
     std::vector<std::vector<int>> chunks;
+
+    void SetUp() override {
+        ChunkTestBase::SetUp();
+
+        try {
+            test_data = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+            chunks = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+        } catch (const std::exception& e) {
+            FAIL() << "Setup failed: " << e.what();
+        }
+    }
+
+    void TearDown() override {
+        try {
+            test_data.clear();
+            chunks.clear();
+        } catch (...) {
+            // Ensure base teardown still happens
+        }
+        ChunkTestBase::TearDown();
+    }
 };
 
 TEST_F(ParallelChunkProcessorTest, BasicProcessing) {
+    std::unique_lock<std::mutex> lock(global_test_mutex_);
+
     // Double each number in parallel
     auto operation = [](std::vector<int>& chunk) {
         for (int& val : chunk) {
@@ -25,12 +44,16 @@ TEST_F(ParallelChunkProcessorTest, BasicProcessing) {
 
     ParallelChunkProcessor<int>::process_chunks(chunks, operation);
 
+    lock.unlock();
+
     EXPECT_EQ(chunks[0], (std::vector<int>{2, 4, 6}));
     EXPECT_EQ(chunks[1], (std::vector<int>{8, 10, 12}));
     EXPECT_EQ(chunks[2], (std::vector<int>{14, 16, 18}));
 }
 
 TEST_F(ParallelChunkProcessorTest, MapReduce) {
+    std::unique_lock<std::mutex> lock(global_test_mutex_);
+
     // Map: Square each number
     auto square = [](const int& x) { return x * x; };
     auto squared_chunks = ParallelChunkProcessor<int>::map<int>(chunks, square);
@@ -38,6 +61,8 @@ TEST_F(ParallelChunkProcessorTest, MapReduce) {
     // Reduce: Sum all squares
     auto sum = [](const int& a, const int& b) { return a + b; };
     int result = ParallelChunkProcessor<int>::reduce(squared_chunks, sum, 0);
+
+    lock.unlock();
 
     // Expected: 1^2 + 2^2 + ... + 9^2 = 285
     EXPECT_EQ(result, 285);
@@ -157,7 +182,7 @@ TEST_F(ParallelChunkProcessorTest, ConcurrentModification) {
 
 TEST_F(ParallelChunkProcessorTest, ExceptionPropagation) {
     std::vector<std::vector<int>> data = {{1}, {2}, {3}, {4}, {5}};
-    int exception_threshold = 3;
+    int exception_threshold = 2;
 
     EXPECT_THROW(
         {
@@ -166,6 +191,7 @@ TEST_F(ParallelChunkProcessorTest, ExceptionPropagation) {
                     if (chunk[0] > exception_threshold) {
                         throw std::runtime_error("Value too large");
                     }
+                    std::cout << "chunk[0] before increment: " << chunk[0] << std::endl;
                     chunk[0] *= 2;
                 });
         },

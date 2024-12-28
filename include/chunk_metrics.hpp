@@ -6,83 +6,164 @@
  */
 
 #pragma once
+
 #include "chunk_common.hpp"
+#include <algorithm>
 #include <cmath>
+#include <limits>
+#include <map>
 #include <stdexcept>
-#include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace chunk_metrics {
 
-/**
- * @brief Class for analyzing and evaluating chunk quality
- * @tparam T The data type of the chunks (must support arithmetic operations)
- */
-template <typename T>
-class CHUNK_EXPORT ChunkQualityAnalyzer {
-public:
-    /**
-     * @brief Calculate cohesion (internal similarity) of chunks
-     * @param chunks Vector of chunk data
-     * @return Cohesion score between 0 and 1
-     * @throws std::invalid_argument if chunks is empty
-     */
-    double compute_cohesion(const std::vector<std::vector<T>>& chunks) {
-        if (chunks.empty()) {
-            throw std::invalid_argument("Empty chunks vector");
-        }
-
-        double total_cohesion = 0.0;
-        for (const auto& chunk : chunks) {
-            if (chunk.empty())
-                continue;
-
-            T mean = calculate_mean(chunk);
-            T variance = calculate_variance(chunk, mean);
-
-            // Normalize variance to [0,1] range
-            total_cohesion += 1.0 / (1.0 + std::sqrt(variance));
-        }
-
-        return total_cohesion / chunks.size();
+namespace detail {
+    template<typename T>
+    bool is_valid_chunk(const std::vector<T>& chunk) {
+        return !chunk.empty() && std::all_of(chunk.begin(), chunk.end(), 
+            [](const T& val) { return std::isfinite(static_cast<double>(val)); });
     }
 
-    /**
-     * @brief Calculate separation (dissimilarity between chunks)
-     * @param chunks Vector of chunk data
-     * @return Separation score between 0 and 1
-     * @throws std::invalid_argument if chunks is empty or contains single chunk
-     */
-    double compute_separation(const std::vector<std::vector<T>>& chunks) {
+    template<typename T>
+    double safe_mean(const std::vector<T>& data) {
+        if (data.empty()) return 0.0;
+        double sum = 0.0;
+        size_t count = 0;
+        
+        for (const auto& val : data) {
+            double d_val = static_cast<double>(val);
+            if (std::isfinite(d_val)) {
+                sum += d_val;
+                ++count;
+            }
+        }
+        return count > 0 ? sum / count : 0.0;
+    }
+
+    template<typename T>
+    double safe_distance(const T& a, const T& b) {
+        try {
+            double d_a = static_cast<double>(a);
+            double d_b = static_cast<double>(b);
+            return std::isfinite(d_a) && std::isfinite(d_b) ? 
+                   std::abs(d_a - d_b) : 
+                   std::numeric_limits<double>::max();
+        } catch (...) {
+            return std::numeric_limits<double>::max();
+        }
+    }
+}
+
+template <typename T>
+class CHUNK_EXPORT ChunkQualityAnalyzer {
+private:
+    double compute_chunk_cohesion(const std::vector<T>& chunk) const {
+        if (chunk.size() < 2) return 0.0;
+
+        std::vector<double> distances;
+        distances.reserve((chunk.size() * (chunk.size() - 1)) / 2);
+
+        for (size_t i = 0; i < chunk.size(); ++i) {
+            for (size_t j = i + 1; j < chunk.size(); ++j) {
+                double dist = detail::safe_distance(chunk[i], chunk[j]);
+                if (dist < std::numeric_limits<double>::max()) {
+                    distances.push_back(dist);
+                }
+            }
+        }
+
+        if (distances.empty()) return 0.0;
+        std::sort(distances.begin(), distances.end());
+        return distances[distances.size() / 2];  // Return median distance
+    }
+
+public:
+    ChunkQualityAnalyzer() = default;
+    ~ChunkQualityAnalyzer() = default;
+
+    // Prevent copying/moving
+    ChunkQualityAnalyzer(const ChunkQualityAnalyzer&) = delete;
+    ChunkQualityAnalyzer& operator=(const ChunkQualityAnalyzer&) = delete;
+    ChunkQualityAnalyzer(ChunkQualityAnalyzer&&) = delete;
+    ChunkQualityAnalyzer& operator=(ChunkQualityAnalyzer&&) = delete;
+
+    double compute_cohesion(const std::vector<std::vector<T>>& chunks) const {
+        if (chunks.empty()) {
+            throw std::invalid_argument("Empty chunks");
+        }
+
+        std::vector<double> cohesion_values;
+        cohesion_values.reserve(chunks.size());
+
+        for (const auto& chunk : chunks) {
+            if (chunk.empty() || chunk.size() > 1000000) {
+                throw std::invalid_argument("Invalid chunk size");
+            }
+            double chunk_cohesion = compute_chunk_cohesion(chunk);
+            if (std::isfinite(chunk_cohesion)) {
+                cohesion_values.push_back(chunk_cohesion);
+            }
+        }
+
+        if (cohesion_values.empty()) {
+            throw std::runtime_error("No valid cohesion values computed");
+        }
+
+        std::sort(cohesion_values.begin(), cohesion_values.end());
+        return cohesion_values[cohesion_values.size() / 2];
+    }
+
+    bool compare_cohesion(const std::vector<std::vector<T>>& well_separated,
+                         const std::vector<std::vector<T>>& mixed,
+                         double& high_result,
+                         double& mixed_result) const {
+        try {
+            if (well_separated.empty() || mixed.empty()) {
+                return false;
+            }
+
+            high_result = compute_cohesion(well_separated);
+            mixed_result = compute_cohesion(mixed);
+
+            return std::isfinite(high_result) && 
+                   std::isfinite(mixed_result) && 
+                   high_result > mixed_result;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    double compute_separation(const std::vector<std::vector<T>>& chunks) const {
         if (chunks.size() < 2) {
             throw std::invalid_argument("Need at least two chunks for separation");
         }
 
         double total_separation = 0.0;
-        int comparisons = 0;
+        size_t valid_pairs = 0;
 
         for (size_t i = 0; i < chunks.size(); ++i) {
             for (size_t j = i + 1; j < chunks.size(); ++j) {
-                T mean_i = calculate_mean(chunks[i]);
-                T mean_j = calculate_mean(chunks[j]);
+                if (chunks[i].empty() || chunks[j].empty()) continue;
 
-                // Calculate distance between means
-                double separation = std::abs(mean_i - mean_j);
-                total_separation += separation;
-                ++comparisons;
+                double mean_i = detail::safe_mean(chunks[i]);
+                double mean_j = detail::safe_mean(chunks[j]);
+
+                if (std::isfinite(mean_i) && std::isfinite(mean_j)) {
+                    total_separation += std::abs(mean_i - mean_j);
+                    ++valid_pairs;
+                }
             }
         }
 
-        return total_separation / comparisons;
+        if (valid_pairs == 0) {
+            throw std::runtime_error("No valid separation values computed");
+        }
+
+        return total_separation / valid_pairs;
     }
 
-    /**
-     * @brief Calculate silhouette score for chunk validation
-     * @param chunks Vector of chunk data
-     * @return Silhouette score between -1 and 1
-     * @throws std::invalid_argument if chunks is empty or contains single chunk
-     */
-    double compute_silhouette_score(const std::vector<std::vector<T>>& chunks) {
+    double compute_silhouette_score(const std::vector<std::vector<T>>& chunks) const {
         if (chunks.size() < 2) {
             throw std::invalid_argument("Need at least two chunks for silhouette score");
         }
@@ -94,88 +175,97 @@ public:
             for (const auto& point : chunks[i]) {
                 // Calculate a (average distance to points in same chunk)
                 double a = 0.0;
+                size_t same_chunk_count = 0;
                 for (const auto& other_point : chunks[i]) {
                     if (&point != &other_point) {
-                        a += std::abs(point - other_point);
+                        double dist = detail::safe_distance(point, other_point);
+                        if (dist < std::numeric_limits<double>::max()) {
+                            a += dist;
+                            ++same_chunk_count;
+                        }
                     }
                 }
-                a = chunks[i].size() > 1 ? a / (chunks[i].size() - 1) : 0;
+                a = same_chunk_count > 0 ? a / same_chunk_count : 0.0;
 
-                // Calculate b (minimum average distance to points in other chunks)
+                // Calculate b (minimum average distance to other chunks)
                 double b = std::numeric_limits<double>::max();
                 for (size_t j = 0; j < chunks.size(); ++j) {
                     if (i != j) {
                         double avg_dist = 0.0;
+                        size_t valid_dist = 0;
                         for (const auto& other_point : chunks[j]) {
-                            avg_dist += std::abs(point - other_point);
+                            double dist = detail::safe_distance(point, other_point);
+                            if (dist < std::numeric_limits<double>::max()) {
+                                avg_dist += dist;
+                                ++valid_dist;
+                            }
                         }
-                        avg_dist /= chunks[j].size();
-                        b = std::min(b, avg_dist);
+                        if (valid_dist > 0) {
+                            b = std::min(b, avg_dist / valid_dist);
+                        }
                     }
                 }
 
-                // Calculate silhouette score for this point
-                double max_ab = std::max(a, b);
-                if (max_ab > 0) {
-                    total_score += (b - a) / max_ab;
+                if (std::isfinite(a) && std::isfinite(b) && b < std::numeric_limits<double>::max()) {
+                    double max_ab = std::max(a, b);
+                    if (max_ab > 0) {
+                        total_score += (b - a) / max_ab;
+                        ++total_points;
+                    }
                 }
-                ++total_points;
             }
+        }
+
+        if (total_points == 0) {
+            throw std::runtime_error("No valid silhouette scores computed");
         }
 
         return total_score / total_points;
     }
 
-    /**
-     * @brief Calculate overall quality score combining multiple metrics
-     * @param chunks Vector of chunk data
-     * @return Quality score between 0 and 1
-     * @throws std::invalid_argument if chunks is empty
-     */
-    double compute_quality_score(const std::vector<std::vector<T>>& chunks) {
+    double compute_quality_score(const std::vector<std::vector<T>>& chunks) const {
         if (chunks.empty()) {
             throw std::invalid_argument("Empty chunks vector");
         }
 
-        double cohesion = compute_cohesion(chunks);
-        double separation = chunks.size() > 1 ? compute_separation(chunks) : 1.0;
+        try {
+            double cohesion = compute_cohesion(chunks);
+            double separation = chunks.size() > 1 ? compute_separation(chunks) : 1.0;
 
-        return (cohesion + separation) / 2.0;
+            if (!std::isfinite(cohesion) || !std::isfinite(separation)) {
+                throw std::runtime_error("Invalid metric values computed");
+            }
+
+            return (cohesion + separation) / 2.0;
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error computing quality score: ") + e.what());
+        }
     }
 
-    /**
-     * @brief Compute size-based metrics for chunks
-     * @param chunks Vector of chunk data
-     * @return Map of metric names to values
-     */
-    std::unordered_map<std::string, double>
-    compute_size_metrics(const std::vector<std::vector<T>>& chunks) {
-        std::unordered_map<std::string, double> metrics;
-
+    std::map<std::string, double> compute_size_metrics(const std::vector<std::vector<T>>& chunks) const {
         if (chunks.empty()) {
             throw std::invalid_argument("Empty chunks vector");
         }
 
-        // Calculate average chunk size
+        std::map<std::string, double> metrics;
         double avg_size = 0.0;
         double max_size = 0.0;
-        double min_size = chunks[0].size();
+        double min_size = static_cast<double>(chunks[0].size());
 
         for (const auto& chunk : chunks) {
-            size_t size = chunk.size();
+            double size = static_cast<double>(chunk.size());
             avg_size += size;
-            max_size = std::max(max_size, static_cast<double>(size));
-            min_size = std::min(min_size, static_cast<double>(size));
+            max_size = std::max(max_size, size);
+            min_size = std::min(min_size, size);
         }
-        avg_size /= chunks.size();
+        avg_size /= static_cast<double>(chunks.size());
 
-        // Calculate size variance
         double variance = 0.0;
         for (const auto& chunk : chunks) {
-            double diff = chunk.size() - avg_size;
+            double diff = static_cast<double>(chunk.size()) - avg_size;
             variance += diff * diff;
         }
-        variance /= chunks.size();
+        variance /= static_cast<double>(chunks.size());
 
         metrics["average_size"] = avg_size;
         metrics["max_size"] = max_size;
@@ -186,53 +276,9 @@ public:
         return metrics;
     }
 
-    /**
-     * @brief Clear internal caches to free memory
-     */
-    void clear_cache() {
-        // Clear any cached computations
-        cached_cohesion.clear();
-        cached_separation.clear();
+    void clear_cache() const {
+        // No-op in single-threaded version
     }
-
-private:
-    /**
-     * @brief Calculate mean value of a chunk
-     * @param chunk Single chunk data
-     * @return Mean value of the chunk
-     */
-    T calculate_mean(const std::vector<T>& chunk) {
-        if (chunk.empty()) {
-            return T{};
-        }
-        T sum = T{};
-        for (const auto& val : chunk) {
-            sum += val;
-        }
-        return sum / static_cast<T>(chunk.size());
-    }
-
-    /**
-     * @brief Calculate variance of a chunk
-     * @param chunk Single chunk data
-     * @param mean Pre-calculated mean value
-     * @return Variance of the chunk
-     */
-    T calculate_variance(const std::vector<T>& chunk, T mean) {
-        if (chunk.size() < 2) {
-            return T{};
-        }
-        T sum_sq_diff = T{};
-        for (const auto& val : chunk) {
-            T diff = val - mean;
-            sum_sq_diff += diff * diff;
-        }
-        return sum_sq_diff / static_cast<T>(chunk.size() - 1);
-    }
-
-    // Add cache containers
-    std::unordered_map<size_t, double> cached_cohesion;
-    std::unordered_map<size_t, double> cached_separation;
 };
 
 } // namespace chunk_metrics

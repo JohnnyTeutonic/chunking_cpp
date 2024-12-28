@@ -7,10 +7,20 @@ SRC_FILES := $(shell find . -name "*.cpp" -o -name "*.hpp")
 
 # Compiler settings
 CXX := g++
-CXXFLAGS := -std=c++17 -Wall -Wextra
+CXXFLAGS := -std=c++17 -Wall -Wextra -O2
+INCLUDES = -I./include
+LDFLAGS = -pthread
+
+# Directories
+SRC_DIR = src
+INCLUDE_DIR = include
+BUILD_DIR = build
+
+# Source files
+METRICS_SOURCES = src/chunk_metrics.cpp
 
 # Ensure build directory exists and is configured
-.PHONY: setup-build test docs docs-clean docs-serve docs-stop local-help run uninstall format format-check neural_chunking_demo sophisticated_chunking_demo
+.PHONY: setup-build test docs docs-clean docs-serve docs-stop local-help run uninstall format format-check neural_chunking_demo sophisticated_chunking_demo metrics chunk_metrics
 
 setup-build:
 	@mkdir -p $(BUILD_DIR)
@@ -114,6 +124,13 @@ local-help:
 	@echo "Custom targets available:"
 	@echo "  setup-build  - Configure and build the project"
 	@echo "  neural_chunking_demo - Run the neural chunking demo"
+	@echo "  benchmark - Run the benchmark"
+	@echo "  visualization - Run the visualization"
+	@echo "  metrics - Run the metrics"
+	@echo "  metrics-debug - Run the metrics with debug output"
+	@echo "  pytest - Run the pytest tests"
+	@echo "  chunk_metrics - Run the chunk metrics"
+	@echo "  pytest-coverage - Run the pytest tests with coverage"
 	@echo "  sophisticated_chunking_demo - Run the sophisticated chunking demo"
 	@echo "  test         - Run tests"
 	@echo "  docs         - Generate documentation"
@@ -174,3 +191,18 @@ pytest:
 pytest-coverage:
 	@pytest --cov=chunking_cpp --cov-report=html --cov-report=term tests/python/test_py_bindings.py
 	@echo "Coverage report generated in htmlcov/index.html"
+
+# Metrics target
+metrics: chunk_metrics
+	@echo "Running metrics calculations..."
+	./chunk_metrics
+
+# Build target for metrics executable
+chunk_metrics: $(METRICS_SOURCES) $(INCLUDE_DIR)/chunk_metrics.hpp
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(METRICS_SOURCES) -o chunk_metrics $(LDFLAGS)
+
+# Run metrics with debug output
+metrics-debug: chunk_metrics
+	@echo "Running metrics calculations with debug output..."
+	./chunk_metrics --debug

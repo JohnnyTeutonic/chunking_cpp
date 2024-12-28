@@ -198,10 +198,21 @@ set_tests_properties(create_test_output PROPERTIES
 )
 
 # Find all test files using globbing
-file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/*.cpp")
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS 
+    "${CMAKE_SOURCE_DIR}/tests/*.cpp"
+)
 
-# Add test executable with globbed sources
-add_executable(run_tests ${TEST_SOURCES})
+# Add test base implementation
+set(ALL_TEST_SOURCES
+    ${TEST_SOURCES}
+    tests/test_base.cpp
+    tests/test_metrics.cpp
+    tests/sub_chunk_strategies_test.cpp
+    tests/parallel_chunk_test.cpp
+)
+
+# Add single test executable with all sources
+add_executable(run_tests ${ALL_TEST_SOURCES})
 
 # Link test executable
 target_link_libraries(run_tests
