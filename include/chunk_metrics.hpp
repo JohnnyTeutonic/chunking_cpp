@@ -11,14 +11,19 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <future>        // For std::promise, std::future
 #include <limits>
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <optional>
+#include <shared_mutex>  // For std::shared_mutex
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+#include <chrono>
+#include <condition_variable>
 
 namespace chunk_metrics {
 
@@ -76,130 +81,176 @@ double safe_distance(const T& a, const T& b) {
 template <typename T>
 class CHUNK_EXPORT ChunkQualityAnalyzer {
 private:
+    // Thread safety
     mutable std::mutex mutex_;
-    mutable std::recursive_mutex compute_mutex_;
-    mutable std::atomic<bool> is_processing_{false};
-    mutable std::atomic<bool> is_computing_quality_{false};
-    mutable std::atomic<size_t> computation_depth_{0};
+    mutable std::condition_variable cv_;
+    mutable std::atomic<bool> is_computing_{false};
+    mutable std::atomic<int> active_computations_{0};
+    mutable std::atomic<bool> shutting_down_{false};
 
-    // Add a simple reset flag instead of complex cache
-    mutable std::atomic<bool> needs_reset_{false};
+    // Memory safety
+    struct SafeData {
+        std::vector<std::vector<T>> data;
+        mutable std::mutex mutex;
+        bool is_valid{false};
 
-    struct ComputationGuard {
-        std::atomic<size_t>& depth;
-        explicit ComputationGuard(std::atomic<size_t>& d) : depth(d) { ++depth; }
-        ~ComputationGuard() { --depth; }
+        void clear() const {
+            std::lock_guard<std::mutex> lock(mutex);
+            const_cast<std::vector<std::vector<T>>&>(data).clear();
+            const_cast<bool&>(is_valid) = false;
+        }
+
+        bool set(const std::vector<std::vector<T>>& new_data) const {
+            if (new_data.empty()) return false;
+            std::lock_guard<std::mutex> lock(mutex);
+            try {
+                const_cast<std::vector<std::vector<T>>&>(data) = new_data;
+                const_cast<bool&>(is_valid) = true;
+                return true;
+            } catch (...) {
+                clear();
+                return false;
+            }
+        }
+
+        bool get(std::vector<std::vector<T>>& out_data) const {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!is_valid) return false;
+            try {
+                out_data = data;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
     };
 
-    template<typename Func>
-    auto compute_safely(Func&& func) const -> decltype(func()) {
-        if (computation_depth_ > 10) {
-            throw std::runtime_error("Computation depth exceeded");
+    mutable SafeData input_data_;
+
+    // RAII guard for computations
+    class ComputationGuard {
+        ChunkQualityAnalyzer const* analyzer_;
+        std::unique_lock<std::mutex> lock_;
+        bool active_{false};
+
+    public:
+        explicit ComputationGuard(const ChunkQualityAnalyzer* a) 
+            : analyzer_(a)
+            , lock_(a->mutex_) 
+        {
+            if (analyzer_->shutting_down_) {
+                throw std::runtime_error("Analyzer is shutting down");
+            }
+            analyzer_->active_computations_++;
+            active_ = true;
         }
-        ComputationGuard guard(computation_depth_);
-        std::lock_guard<std::recursive_mutex> lock(compute_mutex_);
-        return func();
-    }
 
-    double compute_chunk_cohesion(const std::vector<T>& chunk, double chunk_mean) const {
-        return compute_safely([&]() {
-            if (chunk.empty()) return 0.0;
+        ~ComputationGuard() {
+            if (active_) {
+                analyzer_->active_computations_--;
+                analyzer_->cv_.notify_one();
+            }
+        }
 
+        ComputationGuard(const ComputationGuard&) = delete;
+        ComputationGuard& operator=(const ComputationGuard&) = delete;
+    };
+
+    // Safe computation of chunk cohesion
+    double compute_chunk_cohesion(const std::vector<T>& chunk) const {
+        if (chunk.size() < 2) return 0.0;
+
+        try {
             std::vector<double> distances;
             distances.reserve((chunk.size() * (chunk.size() - 1)) / 2);
 
             for (size_t i = 0; i < chunk.size(); ++i) {
                 for (size_t j = i + 1; j < chunk.size(); ++j) {
-                    try {
-                        double dist = detail::safe_distance(chunk[i], chunk[j]);
-                        if (dist < std::numeric_limits<double>::max()) {
-                            distances.push_back(dist);
-                        }
-                    } catch (...) {
-                        continue;
+                    if (shutting_down_) throw std::runtime_error("Computation aborted");
+                    
+                    double dist = detail::safe_distance(chunk[i], chunk[j]);
+                    if (std::isfinite(dist) && dist < std::numeric_limits<double>::max()) {
+                        distances.push_back(dist);
                     }
                 }
             }
 
             if (distances.empty()) return 0.0;
 
+            // Use median instead of mean for robustness
             std::sort(distances.begin(), distances.end());
-            if (distances.size() % 2 == 0) {
-                return (distances[distances.size()/2 - 1] + distances[distances.size()/2]) / 2.0;
-            }
-            return distances[distances.size()/2];
-        });
+            return distances[distances.size() / 2];
+
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Chunk cohesion computation failed: ") + e.what());
+        }
     }
 
 public:
     ChunkQualityAnalyzer() = default;
 
-    /**
-     * @brief Reset internal state
-     */
-    void clear_cache() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        needs_reset_ = true;
-        computation_depth_ = 0;
-        is_processing_ = false;
-        is_computing_quality_ = false;
+    ~ChunkQualityAnalyzer() {
+        shutting_down_ = true;
+        cv_.notify_all();
+        
+        // Wait for all computations to finish
+        while (active_computations_ > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
 
+    // Prevent copying/moving
+    ChunkQualityAnalyzer(const ChunkQualityAnalyzer&) = delete;
+    ChunkQualityAnalyzer& operator=(const ChunkQualityAnalyzer&) = delete;
+    ChunkQualityAnalyzer(ChunkQualityAnalyzer&&) = delete;
+    ChunkQualityAnalyzer& operator=(ChunkQualityAnalyzer&&) = delete;
+
     double compute_cohesion(const std::vector<std::vector<T>>& chunks) const {
-        return compute_safely([&]() {
-            try {
-                std::unique_lock<std::mutex> lock(mutex_);
+        if (chunks.empty()) {
+            throw std::invalid_argument("Empty chunks");
+        }
 
-                if (chunks.empty()) {
-                    throw std::invalid_argument("Empty chunks vector");
-                }
-
-                for (const auto& chunk : chunks) {
-                    if (!detail::is_valid_chunk(chunk)) {
-                        throw std::invalid_argument("Invalid chunk detected");
-                    }
-                }
-
-                std::vector<double> means;
-                means.reserve(chunks.size());
-                for (const auto& chunk : chunks) {
-                    means.push_back(detail::safe_mean(chunk));
-                }
-
-                double total_cohesion = 0.0;
-                size_t valid_chunks = 0;
-
-                for (size_t i = 0; i < chunks.size(); ++i) {
-                    try {
-                        if (!chunks[i].empty()) {
-                            double chunk_cohesion = compute_chunk_cohesion(chunks[i], means[i]);
-                            if (std::isfinite(chunk_cohesion)) {
-                                total_cohesion += chunk_cohesion;
-                                ++valid_chunks;
-                            }
-                        }
-                    } catch (...) {
-                        continue;
-                    }
-                }
-
-                if (valid_chunks == 0) {
-                    throw std::runtime_error("No valid chunks for cohesion calculation");
-                }
-
-                double result = total_cohesion / valid_chunks;
-                if (!std::isfinite(result)) {
-                    throw std::runtime_error("Invalid cohesion result computed");
-                }
-
-                return result;
-
-            } catch (const std::exception& e) {
-                throw std::runtime_error(std::string("Cohesion computation failed: ") + e.what());
-            } catch (...) {
-                throw std::runtime_error("Unknown error in cohesion computation");
+        // Validate input data
+        for (const auto& chunk : chunks) {
+            if (chunk.empty() || chunk.size() > 1000000) {
+                throw std::invalid_argument("Invalid chunk size");
             }
-        });
+        }
+
+        try {
+            ComputationGuard guard(this);
+            
+            if (!input_data_.set(chunks)) {
+                throw std::runtime_error("Failed to store input data");
+            }
+
+            std::vector<double> cohesion_values;
+            cohesion_values.reserve(chunks.size());
+
+            for (const auto& chunk : chunks) {
+                if (shutting_down_) break;
+                
+                try {
+                    double chunk_cohesion = compute_chunk_cohesion(chunk);
+                    if (std::isfinite(chunk_cohesion)) {
+                        cohesion_values.push_back(chunk_cohesion);
+                    }
+                } catch (...) {
+                    continue; // Skip problematic chunks
+                }
+            }
+
+            if (cohesion_values.empty()) {
+                throw std::runtime_error("No valid cohesion values computed");
+            }
+
+            // Use median for final result
+            std::sort(cohesion_values.begin(), cohesion_values.end());
+            return cohesion_values[cohesion_values.size() / 2];
+
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Cohesion computation failed: ") + e.what());
+        }
     }
 
     /**
@@ -302,7 +353,7 @@ public:
     double compute_quality_score(const std::vector<std::vector<T>>& chunks) const {
         // Prevent reentrant calls and ensure thread safety
         bool expected = false;
-        if (!is_computing_quality_.compare_exchange_strong(expected, true)) {
+        if (!is_computing_.compare_exchange_strong(expected, true)) {
             throw std::runtime_error("Quality score computation already in progress");
         }
 
@@ -310,7 +361,7 @@ public:
             std::atomic<bool>& flag;
             QualityGuard(std::atomic<bool>& f) : flag(f) {}
             ~QualityGuard() { flag = false; }
-        } guard(const_cast<std::atomic<bool>&>(is_computing_quality_));
+        } guard(const_cast<std::atomic<bool>&>(is_computing_));
 
         try {
             std::unique_lock<std::mutex> lock(mutex_);
@@ -396,6 +447,35 @@ public:
         return metrics;
     }
 
+    // Update test to use proper synchronization:
+    bool compare_cohesion(const std::vector<std::vector<T>>& well_separated,
+                         const std::vector<std::vector<T>>& mixed,
+                         double& high_result, double& mixed_result) const {
+        std::unique_lock<std::mutex> lock(mutex_);
+        
+        try {
+            if (well_separated.empty() || mixed.empty()) {
+                return false;
+            }
+
+            high_result = compute_cohesion(well_separated);
+            mixed_result = compute_cohesion(mixed);
+
+            return std::isfinite(high_result) && 
+                   std::isfinite(mixed_result) && 
+                   high_result > mixed_result;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // Add clear_cache method
+    void clear_cache() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        is_computing_ = false;
+        active_computations_ = 0;
+    }
+
 private:
     /**
      * @brief Calculate mean value of a chunk
@@ -430,6 +510,10 @@ private:
         }
         return sum_sq_diff / static_cast<T>(chunk.size() - 1);
     }
+
+    // Store reference data for caching
+    mutable std::vector<std::vector<T>> well_separated_chunks_;
+    mutable std::vector<std::vector<T>> mixed_cohesion_chunks_;
 };
 
 } // namespace chunk_metrics
